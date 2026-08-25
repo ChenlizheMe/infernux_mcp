@@ -1,0 +1,16 @@
+{
+  "reference": "infernux.core.mcp",
+  "name": "Infernux MCP",
+  "version": "0.0.1",
+  "intro": "Default editor integration for MCP-based tools and agents.",
+  "plugin_root": "Library/Packages/infernux.core.mcp",
+  "preload": [
+    "plugin.py"
+  ],
+  "requirements": "",
+  "player": {
+    "export": false,
+    "include": [],
+    "exclude": []
+  }
+}
