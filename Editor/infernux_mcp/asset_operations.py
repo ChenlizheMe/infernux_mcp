@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import os
 
-from Infernux.host import Operation, OperationError, OperationKind
+from Infernux.host import EditorAutomationHost, Operation, OperationError, OperationKind
 
 from .operation_support import (
     asset_database,
@@ -155,65 +155,18 @@ def _create_asset(kind: str, directory: str, name: str, variant: str = "") -> di
         normalized = str(kind or "").strip()
         if normalized not in _CREATE_KINDS:
             raise OperationError("operation.invalid_arguments", f"Unknown asset kind: {kind}")
-        core = interaction_core()
-        service = core.project_asset_interactions
-        if service.configured:
-            path = service.create(
-                normalized,
-                directory,
-                name,
-                _CREATE_KINDS[normalized],
-                variant,
-            )
-        else:
-            # Headless owns the same command service but has no Project-panel
-            # presentation callbacks. Keep creation non-visual while still
-            # entering the authoritative asset Undo transaction.
-            from Infernux.engine.ui import project_file_ops
-
-            unique_name = project_file_ops.get_unique_name(
-                directory,
-                name,
-                _CREATE_KINDS[normalized],
-            )
-            path = core.project_assets.create_with_path(
-                directory,
-                lambda: _create_headless_asset(
-                    project_file_ops,
-                    normalized,
-                    directory,
-                    unique_name,
-                    variant,
-                    core.project_assets.asset_database,
-                ),
-                description=f"Create {normalized.replace('_', ' ').title()}",
-            )
+        path = EditorAutomationHost.instance().create_project_asset(
+            normalized,
+            directory,
+            name,
+            _CREATE_KINDS[normalized],
+            variant,
+        )
         if not path:
             raise OperationError("asset.create_rejected", "Project asset creation was rejected.")
         return {"asset": asset_identity(path)}
 
     return on_editor("infernux.asset.create", create)
-
-
-def _create_headless_asset(file_ops, kind: str, directory: str, name: str, variant: str, database):
-    creators = {
-        "folder": (file_ops.create_folder, (directory, name)),
-        "script": (file_ops.create_script, (directory, name, database)),
-        "shader": (file_ops.create_shader, (directory, name, variant, database)),
-        "material": (file_ops.create_material, (directory, name, database)),
-        "physic_material": (file_ops.create_physic_material, (directory, name, database)),
-        "scene": (file_ops.create_scene, (directory, name, database)),
-        "animation_clip": (file_ops.create_animclip, (directory, name, database)),
-        "animation_clip3d": (file_ops.create_animclip3d, (directory, name, database)),
-        "animation_fsm": (file_ops.create_animfsm, (directory, name, database)),
-        "particle_graph": (file_ops.create_particlegraph, (directory, name, database)),
-        "render_effect": (file_ops.create_render_effect, (directory, name, variant, database)),
-        "render_effect_group": (file_ops.create_render_effect_group, (directory, name, database)),
-        "animation_timeline": (file_ops.create_animtimeline, (directory, name, database)),
-        "timeline_fsm": (file_ops.create_timelinefsm, (directory, name, database)),
-    }
-    callback, arguments = creators[kind]
-    return callback(*arguments)
 
 
 def _delete_assets(asset_guids: list[str]) -> dict[str, object]:

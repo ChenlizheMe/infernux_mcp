@@ -8,4 +8,6 @@ The MCP surface advertises a small set of gateway tools. Engine actions live beh
 - Treat session and revision changes as schema-discovery boundaries.
 - Use command gateways for mutations and query gateways for read-only inspection.
 
-Scene, component, asset, material, particle, camera, runtime, checkpoint, and supervisor operations are registered by this plugin during preload.
+Scene, component, asset, material, particle, camera, runtime, input, semantic UI,
+render capture, Console, documentation, Player validation, checkpoint, and
+supervisor operations are registered during preload.

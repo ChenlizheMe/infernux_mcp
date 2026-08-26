@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from Infernux.host import Operation, OperationError, OperationKind
+from Infernux.host import EditorAutomationHost, Operation, OperationError, OperationKind
 
 from .operation_support import (
     active_scene,
@@ -203,27 +203,15 @@ def _hierarchy() -> dict[str, object]:
 
 def _object_kinds() -> dict[str, object]:
     def read():
-        from Infernux.engine.hierarchy_creation_service import HierarchyCreationService
-
-        return {"kinds": HierarchyCreationService.instance().list_create_kinds()}
+        return {"kinds": EditorAutomationHost.instance().hierarchy_create_kinds()}
 
     return on_editor("infernux.scene.object.kinds", read)
 
 
 def _create_object(kind: str, parent_id: int = 0, name: str = "") -> dict[str, object]:
     def create():
-        from Infernux.engine.hierarchy_creation_service import HierarchyCreationService
-
-        service = HierarchyCreationService.instance()
-        if not service.can_create(kind, parent_id=int(parent_id)):
-            raise OperationError("scene.create_rejected", f"Cannot create object kind {kind!r}.")
-        return service.create(
-            kind,
-            parent_id=int(parent_id),
-            name=str(name or "") or None,
-            select=False,
-            selection_owner_id="automation",
-            selection_reason="mcp_create_game_object",
+        return EditorAutomationHost.instance().create_scene_object(
+            kind, int(parent_id), str(name or "")
         )
 
     return on_editor("infernux.scene.object.create", create)
@@ -304,11 +292,8 @@ def _set_component_property(
 
 def _open_scene(asset_guid: str) -> dict[str, object]:
     def open_document():
-        from Infernux.engine.scene_manager import SceneFileManager
-
         path = asset_path(asset_guid, suffix=".scene")
-        manager = SceneFileManager.instance()
-        if manager is None or not manager.open_scene(path):
+        if not EditorAutomationHost.instance().open_scene(path):
             raise OperationError("scene.open_rejected", "The scene could not be opened.")
         return {"asset_guid": asset_guid, "path": path, "opened": True}
 
@@ -317,12 +302,10 @@ def _open_scene(asset_guid: str) -> dict[str, object]:
 
 def _save_scene() -> dict[str, object]:
     def save():
-        from Infernux.engine.scene_manager import SceneFileManager
-
-        manager = SceneFileManager.instance()
-        if manager is None or not manager.save_current_scene():
-            raise OperationError("scene.save_rejected", "The active scene could not be saved synchronously.")
-        return {"saved": True, "path": str(manager.current_scene_path or "")}
+        return {
+            "saved": True,
+            "path": EditorAutomationHost.instance().save_scene(),
+        }
 
     return on_editor("infernux.scene.save", save)
 

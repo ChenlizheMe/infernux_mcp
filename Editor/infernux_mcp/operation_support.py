@@ -8,6 +8,7 @@ from collections.abc import Callable, Mapping, MutableMapping, MutableSequence
 from typing import Any
 
 from Infernux.host import (
+    EditorAutomationHost,
     MainThreadCommandQueue,
     Operation,
     OperationError,
@@ -72,32 +73,15 @@ def on_editor(operation_id: str, callback: Callable[[], Any]) -> Any:
 
 
 def interaction_core():
-    from Infernux.engine.interaction import EditorInteractionCore
-
-    core = EditorInteractionCore.instance()
-    if core is None:
-        raise OperationError("editor.unavailable", "Editor interaction services are unavailable.")
-    return core
+    return EditorAutomationHost.instance().interaction_core()
 
 
 def plugin_manager():
-    from Infernux.plugins import PluginManager
-
-    manager = PluginManager.instance()
-    if manager is None:
-        raise OperationError("editor.unavailable", "Plugin project session is unavailable.")
-    return manager
+    return EditorAutomationHost.instance().plugin_manager()
 
 
 def asset_database():
-    manager = plugin_manager()
-    engine = getattr(manager, "engine", None)
-    database = getattr(engine, "get_asset_database", lambda: None)()
-    if database is None:
-        database = getattr(interaction_core().project_assets, "asset_database", None)
-    if database is None:
-        raise OperationError("editor.unavailable", "AssetDatabase is unavailable.")
-    return database
+    return EditorAutomationHost.instance().asset_database()
 
 
 def asset_path(asset_guid: str, *, suffix: str = "") -> str:
@@ -130,12 +114,7 @@ def asset_identity(path: str) -> dict[str, object]:
 
 
 def active_scene():
-    from Infernux.lib import SceneManager
-
-    scene = SceneManager.instance().get_active_scene()
-    if scene is None:
-        raise OperationError("editor.unavailable", "No active scene is available.")
-    return scene
+    return EditorAutomationHost.instance().active_scene()
 
 
 def game_object(object_id: int):

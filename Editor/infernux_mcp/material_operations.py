@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from Infernux.host import Operation, OperationError, OperationKind
+from Infernux.host import EditorAutomationHost, Operation, OperationError, OperationKind
 
 from .operation_support import (
     asset_path,
@@ -10,7 +10,6 @@ from .operation_support import (
     interaction_core,
     on_editor,
     operation,
-    plugin_manager,
     set_json_pointer,
 )
 
@@ -64,53 +63,30 @@ def build_material_operations() -> tuple[Operation, ...]:
 
 
 def _load_material(asset_guid: str):
-    from Infernux.core.material import Material
-
     path = asset_path(asset_guid, suffix=".mat")
-    material = Material.load(path)
-    if material is None:
-        raise OperationError("material.load_failed", f"Material could not be loaded: {asset_guid}")
-    return path, material
+    material, document = EditorAutomationHost.instance().material_document(path)
+    return path, material, document
 
 
 def _inspect_material(asset_guid: str) -> dict[str, object]:
     def read():
-        path, material = _load_material(asset_guid)
-        return {"asset_guid": asset_guid, "path": path, "document": material.serialize_document()}
+        path, _material, document = _load_material(asset_guid)
+        return {"asset_guid": asset_guid, "path": path, "document": document}
 
     return on_editor("infernux.material.inspect", read)
 
 
 def _set_material_property(asset_guid: str, pointer: str, value) -> dict[str, object]:
     def edit():
-        from Infernux.engine.interaction import DocumentKind, ensure_editable_resource_document
-
-        path, material = _load_material(asset_guid)
-        before = material.serialize_document()
+        path, _material, before = _load_material(asset_guid)
         after = set_json_pointer(before, pointer, value)
-        controller = ensure_editable_resource_document(
-            category="material",
-            document_kind=DocumentKind.MATERIAL,
-            file_path=path,
-            resource=material,
-            guid=asset_guid,
-            title=material.name,
-            view_id="mcp",
-        )
-        changed = controller.apply_document(
+        EditorAutomationHost.instance().publish_material_document(
+            path,
+            asset_guid,
             after,
-            view_id="mcp",
             edit_key=f"material:{pointer}",
             description=f"Set Material {pointer}",
         )
-        if not changed:
-            raise OperationError("material.edit_rejected", "Material edit was rejected or unchanged.")
-        controller.flush_autosave(force=True)
-        engine = getattr(plugin_manager(), "engine", None)
-        native_engine = getattr(engine, "get_native_engine", lambda: None)()
-        refresh = getattr(native_engine, "refresh_material_pipeline", None)
-        if callable(refresh):
-            refresh(material.native)
         return {"asset_guid": asset_guid, "path": path, "pointer": pointer, "document": after}
 
     return on_editor("infernux.material.property.set", edit)

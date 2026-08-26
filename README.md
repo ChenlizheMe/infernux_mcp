@@ -1,75 +1,77 @@
 # Infernux MCP
 
-`infernux/mcp` is the default, uninstallable MCP Host integration for the
-Infernux editor. It owns the HTTP transport, session/workflow implementation,
-and the OperationSchema-to-MCP adapter; the engine core contains only the
-transport-neutral Host registry and owner-thread dispatcher.
+Infernux MCP connects MCP-compatible AI agents to the Infernux Editor. It lets
+an agent inspect a project, author scenes and assets, control Play Mode, drive
+the Editor through synthetic input, observe semantic UI state, capture engine
+render targets, and validate a standalone Player.
 
-The default MCP surface exposes only schema discovery, execution, batch,
-workflow, job, capability, and session gateways. Behind those gateways the
-package owns formal operations for project/session state, scene and component
-authoring, GUID-addressed assets, materials, strict Particle Graph documents,
-editor/game cameras, and Play Mode. Every engine capability is implemented
-directly as an `OperationSchema`; there is no alternate flat-tool
-implementation or compatibility mapping. The package lives entirely under
-`Editor/`, so it is excluded from Player builds.
+The package is installed as the `infernux/mcp` InxPackage and runs only in the
+Editor. It starts a loopback MCP endpoint for the active project and stops with
+the project session.
 
-## Lifecycle
+## Capabilities
 
-`InfernuxMCPPreload` is discovered through the engine-wide `InxPreload` AST
-scan; there is no manifest entry point. Loading starts the loopback HTTP
-transport and registers the operations owned by `infernux/mcp`. Unloading
-stops accepting requests, drains or cancels bounded jobs, stops the transport,
-removes owned operations and generated client-discovery entries, and releases
-the port. User-owned entries in shared MCP configuration files are preserved.
+- inspect and edit scene objects, components, transforms, materials, particle
+  graphs, cameras, and GUID-addressed assets;
+- enter, pause, step, resume, and stop Play Mode;
+- inject keyboard, pointer, wheel, and text input through the engine event path;
+- inspect rendered controls through semantic UI snapshots;
+- read bounded Editor Console snapshots;
+- request Scene or Game render-target captures and GPU object picks;
+- launch, observe, capture, inspect logs from, and shut down a managed Debug
+  Player;
+- manage validation attempts, checkpoints, traces, and blocker reports.
 
-Installing the package creates project-local code under
-`Packages/infernux/mcp/Editor`. Uninstalling it does not make the engine install
-it again on normal startup. A new project installs it from the engine's
-`default-libraries.json`; an explicit reinstall may use the verified offline
-artifact cache.
+## Installation
 
-## Gateway model
+Install `infernux/mcp` from the Infernux Package Manager or import the provided
+`.inxpkg` file. New projects may include it in their default library set. The
+package can be disabled, uninstalled, or installed again like any other
+InxPackage.
 
-The default surface has 14 tools:
+The Editor exposes the MCP endpoint on `http://127.0.0.1:9713/mcp` by default.
+Set `INFERNUX_MCP_HOST` or `INFERNUX_MCP_PORT` before launching the Editor to
+change the binding.
 
-- `operation_schema_list`, `operation_schema_get`, and
-  `operation_schema_search` discover OperationSchema v0 documents;
-- `operation_query_execute`, `operation_command_execute`,
-  `operation_workflow_invoke`, `operation_execute`, and
-  `operation_batch_execute` invoke them;
-- `operation_job_submit`, `operation_job_status`, and
-  `operation_job_cancel` handle bounded asynchronous work;
-- `mcp_ping`, `host_capabilities`, and `host_session_status` expose connection
-  and revision state.
+## Using the MCP surface
 
-For example, first search for a checkpoint capability:
+Clients discover operation schemas, then invoke the selected stable operation
+ID through a query, command, workflow, batch, or job gateway.
+
+Search for an operation:
 
 ```json
 {
   "tool": "operation_schema_search",
-  "arguments": {"query": "checkpoint", "limit": 20}
+  "arguments": {"query": "scene object create", "limit": 10}
 }
 ```
 
-Then invoke the returned stable operation ID through the matching gateway:
+Execute the returned command:
 
 ```json
 {
-  "tool": "operation_query_execute",
+  "tool": "operation_command_execute",
   "arguments": {
-    "operation": "infernux.mcp.checkpoint.list",
-    "arguments": {}
+    "operation": "infernux.scene.object.create",
+    "arguments": {"name": "AgentCube", "primitive": "cube"}
   }
 }
 ```
 
-The operation catalog is intentionally discovered at runtime. Clients should
-search by domain, fetch only the complete schemas they need, then execute the
-stable dotted IDs. Existing assets are addressed by GUID; paths are returned
-as context and are accepted only where a new destination must be chosen.
-Scene/component edits enter the editor's shared Undo journal, material edits
-use the editable-resource transaction, and Particle Graph edits must pass the
-strict document parser and AOT compiler before publication. Switching profiles
-remains a Supervisor-controlled process boundary; clients must rediscover
-schemas after revision/session changes.
+Existing assets are addressed by GUID. Scene objects and components use the
+identities returned by scene queries. Commands that modify project content use
+the Editor's normal transaction and Undo services.
+
+Input, semantic UI observation, engine capture, and Player validation are
+available in a Supervisor-managed validation session. Render captures contain
+engine render-target pixels and are written as review artifacts; desktop or
+operating-system screen capture is never used.
+
+## Package layout
+
+- `Editor/infernux_mcp` contains the MCP server and operation adapters;
+- `InxPluginPages` provides Package Manager documentation;
+- `InxPackage.json` defines the `infernux/mcp` package.
+
+This package requires Infernux `>=0.3.7,<0.4`.

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from Infernux.host import Operation, OperationError, OperationKind
+from Infernux.host import EditorAutomationHost, Operation, OperationError, OperationKind
 
 from .operation_support import on_editor, operation
 
@@ -76,50 +76,28 @@ def build_runtime_operations() -> tuple[Operation, ...]:
     )
 
 
-def _manager():
-    from Infernux.engine.play_mode import PlayModeManager
-
-    manager = PlayModeManager.instance()
-    if manager is None:
-        raise OperationError("editor.unavailable", "PlayModeManager is unavailable.")
-    return manager
-
-
-def _status_value(manager) -> dict[str, object]:
-    return {
-        "state": str(manager.state.name).lower(),
-        "playing": bool(manager.is_playing),
-        "paused": bool(manager.is_paused),
-        "time_scale": float(manager.time_scale),
-        "delta_time": float(manager.delta_time),
-        "total_play_time": float(manager.total_play_time),
-        "step_sequence": int(manager.step_sequence),
-        "transition_timings_ms": dict(manager.last_transition_timings_ms),
-    }
-
-
 def _runtime_status() -> dict[str, object]:
-    return on_editor("infernux.runtime.status", lambda: {"runtime": _status_value(_manager())})
+    return on_editor(
+        "infernux.runtime.status",
+        lambda: {"runtime": EditorAutomationHost.instance().runtime_status()},
+    )
 
 
 def _transition(operation_id: str, method: str, *, require_truthy: bool = True) -> dict[str, object]:
     def execute():
-        manager = _manager()
-        result = getattr(manager, method)()
-        if require_truthy and not result:
+        result = EditorAutomationHost.instance().runtime_transition(method)
+        if require_truthy and not result["accepted"]:
             raise OperationError("runtime.transition_rejected", f"Runtime transition was rejected: {method}")
-        return {"accepted": True if result is None else bool(result), "runtime": _status_value(manager)}
+        return result
 
     return on_editor(operation_id, execute)
 
 
 def _set_time_scale(value: float) -> dict[str, object]:
-    def edit():
-        manager = _manager()
-        manager.time_scale = float(value)
-        return {"runtime": _status_value(manager)}
-
-    return on_editor("infernux.runtime.time-scale.set", edit)
+    return on_editor(
+        "infernux.runtime.time-scale.set",
+        lambda: EditorAutomationHost.instance().set_time_scale(value),
+    )
 
 
 __all__ = ["build_runtime_operations"]

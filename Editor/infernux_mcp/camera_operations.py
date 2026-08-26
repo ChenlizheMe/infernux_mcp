@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from Infernux.host import Operation, OperationKind
+from Infernux.host import EditorAutomationHost, Operation, OperationKind
 
-from .operation_support import active_scene, on_editor, operation, plugin_manager
+from .operation_support import on_editor, operation
 
 
 _VECTOR3 = {"type": "array", "items": {"type": "number"}, "minItems": 3, "maxItems": 3}
@@ -62,33 +62,10 @@ def build_camera_operations() -> tuple[Operation, ...]:
     )
 
 
-def _editor_camera():
-    camera = getattr(getattr(plugin_manager(), "engine", None), "editor_camera", None)
-    if camera is None:
-        from Infernux.host import OperationError
-
-        raise OperationError("editor.unavailable", "Editor camera is unavailable.")
-    return camera
-
-
-def _camera_state(camera) -> dict[str, object]:
-    return {
-        "position": list(camera.position),
-        "rotation": list(camera.rotation),
-        "focus": list(camera.focus_point),
-        "distance": float(camera.focus_distance),
-        "fov": float(camera.fov),
-        "near_clip": float(camera.near_clip),
-        "far_clip": float(camera.far_clip),
-        "orthographic": bool(camera.orthographic),
-        "orthographic_size": float(camera.orthographic_size),
-    }
-
-
 def _inspect_editor_camera() -> dict[str, object]:
     return on_editor(
         "infernux.camera.editor.inspect",
-        lambda: {"camera": _camera_state(_editor_camera())},
+        lambda: {"camera": EditorAutomationHost.instance().editor_camera_state()},
     )
 
 
@@ -100,42 +77,29 @@ def _set_editor_camera(
     pitch: float,
 ) -> dict[str, object]:
     def edit():
-        camera = _editor_camera()
-        camera.restore_state(
-            *[float(value) for value in position],
-            *[float(value) for value in focus],
-            float(distance),
-            float(yaw),
-            float(pitch),
-        )
-        return {"camera": _camera_state(camera)}
+        return {
+            "camera": EditorAutomationHost.instance().restore_editor_camera(
+                position, focus, distance, yaw, pitch
+            )
+        }
 
     return on_editor("infernux.camera.editor.state.set", edit)
 
 
 def _focus_editor_camera(point: list[float], distance: float = 10.0) -> dict[str, object]:
     def edit():
-        camera = _editor_camera()
-        camera.focus_on(*[float(value) for value in point], float(distance))
-        return {"camera": _camera_state(camera)}
+        return {
+            "camera": EditorAutomationHost.instance().focus_editor_camera(
+                point, distance
+            )
+        }
 
     return on_editor("infernux.camera.editor.focus", edit)
 
 
 def _inspect_game_camera() -> dict[str, object]:
     def read():
-        camera = active_scene().effective_game_camera
-        if camera is None:
-            return {"camera": None}
-        owner = getattr(camera, "game_object", None)
-        serializer = getattr(camera, "serialize_document", None)
-        return {
-            "camera": {
-                "object_id": int(getattr(owner, "id", 0) or 0),
-                "component_id": int(getattr(camera, "component_id", 0) or 0),
-                "document": serializer() if callable(serializer) else {},
-            }
-        }
+        return {"camera": EditorAutomationHost.instance().game_camera_state()}
 
     return on_editor("infernux.camera.game.inspect", read)
 

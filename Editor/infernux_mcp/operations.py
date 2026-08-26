@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Callable
 
 from Infernux.host import (
+    EditorAutomationHost,
     Operation,
     OperationError,
     OperationKind,
@@ -13,11 +14,17 @@ from Infernux.host import (
 from infernux_mcp import session
 from infernux_mcp.asset_operations import build_asset_operations
 from infernux_mcp.camera_operations import build_camera_operations
+from infernux_mcp.capture_operations import build_capture_operations
+from infernux_mcp.console_operations import build_console_operations
+from infernux_mcp.docs_operations import build_docs_operations
+from infernux_mcp.input_operations import build_input_operations
 from infernux_mcp.material_operations import build_material_operations
 from infernux_mcp.operation_support import OWNER, on_editor, operation
 from infernux_mcp.particle_operations import build_particle_operations
+from infernux_mcp.player_operations import build_player_operations
 from infernux_mcp.runtime_operations import build_runtime_operations
 from infernux_mcp.scene_operations import build_scene_operations
+from infernux_mcp.ui_operations import build_ui_operations
 
 
 def build_operations(project_path: str) -> tuple[Operation, ...]:
@@ -104,36 +111,21 @@ def build_operations(project_path: str) -> tuple[Operation, ...]:
         + build_particle_operations()
         + build_camera_operations()
         + build_runtime_operations()
+        + build_input_operations()
+        + build_ui_operations()
+        + build_capture_operations()
+        + build_console_operations()
+        + build_docs_operations()
+        + build_player_operations(project_path)
     )
 
 
 def _project_info_handler(project_path: str) -> Callable[[], dict[str, object]]:
     def execute() -> dict[str, object]:
-        def read() -> dict[str, object]:
-            from Infernux.engine.play_mode import PlayModeManager
-            from Infernux.engine.scene_manager import SceneFileManager
-            from Infernux.lib import SceneManager
-
-            scene_files = SceneFileManager.instance()
-            play_mode = PlayModeManager.instance()
-            scene = SceneManager.instance().get_active_scene()
-            return {
-                "project_root": project_path,
-                "active_scene": {
-                    "name": str(getattr(scene, "name", "")),
-                    "path": str(getattr(scene_files, "current_scene_path", ""))
-                    if scene_files
-                    else "",
-                    "dirty": bool(getattr(scene_files, "is_dirty", False))
-                    if scene_files
-                    else False,
-                },
-                "play_state": str(
-                    getattr(getattr(play_mode, "state", None), "name", "edit")
-                ).lower(),
-            }
-
-        return on_editor("infernux.project.info", read)
+        return on_editor(
+            "infernux.project.info",
+            lambda: EditorAutomationHost.instance().project_info(project_path),
+        )
 
     return execute
 
@@ -145,15 +137,7 @@ def _supervisor_shutdown(lease_token: str) -> dict[str, object]:
         raise OperationError("mcp.supervisor_lease", str(exc)) from exc
 
     def request_close() -> dict[str, object]:
-        from Infernux.engine.scene_manager import SceneFileManager
-
-        manager = SceneFileManager.instance()
-        if manager is None:
-            raise OperationError(
-                "mcp.editor_unavailable",
-                "SceneFileManager is unavailable for normal Editor shutdown.",
-            )
-        manager.request_close()
+        EditorAutomationHost.instance().request_editor_close()
         return {
             "close_requested": True,
             "editor_instance_id": active.editor_instance_id,

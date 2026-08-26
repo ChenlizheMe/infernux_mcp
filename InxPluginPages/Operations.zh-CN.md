@@ -8,4 +8,6 @@ MCP 表面只发布少量 gateway tools，引擎操作则以正式 OperationSche
 - session 或 revision 变化意味着需要重新发现 schema。
 - 修改使用 command gateway，只读检查使用 query gateway。
 
-场景、组件、资产、材质、粒子、相机、运行时、checkpoint 和 supervisor operations 都由本插件在 preload 阶段注册。
+插件会在 preload 阶段注册场景、组件、资产、材质、粒子、相机、运行时、输入、
+语义 UI、引擎截图、Console、文档、Player 验证、checkpoint 和 supervisor
+operations。

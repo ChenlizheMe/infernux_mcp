@@ -1,17 +1,69 @@
 # Infernux MCP
 
-`infernux/mcp` 是 Infernux 编辑器默认安装、但允许卸载和重装的 MCP Host 插件。它负责 HTTP transport、session/workflow 以及从 OperationSchema 到 MCP 的适配；引擎核心只保留与 transport 无关的 Host registry 和主线程 dispatcher。
+Infernux MCP 用于把兼容 MCP 的 AI Agent 连接到 Infernux 编辑器。Agent
+可以读取项目状态、编辑场景和资产、控制 Play Mode、通过合成输入操作编辑器、
+读取语义 UI、捕获引擎渲染目标，并验证独立运行的 Player。
 
-默认 MCP 表面只暴露 schema 查询、执行、批处理、workflow、job、capability 和 session gateway。场景与组件编辑、GUID 资产、材质、Particle Graph、编辑器/游戏相机及 Play Mode 等能力作为正式 OperationSchema 由插件直接实现，不存在旧扁平工具或兼容映射。插件全部位于 `Editor/`，因此不会进入 Player 构建。
+它以 `infernux/mcp` InxPackage 的形式安装，只在编辑器中运行。项目打开时，
+插件会为当前项目启动本地 MCP endpoint；项目会话结束时，endpoint 随之关闭。
 
-## 生命周期
+## 能力
 
-`InfernuxMCPPreload` 通过引擎统一的 `InxPreload` AST 扫描发现，不在 manifest 中声明入口。加载时启动 loopback HTTP transport 并注册 `infernux/mcp` 拥有的 operations；卸载时停止接收请求、处理有界任务、关闭 transport、移除对应 operations 与自动生成的客户端发现条目，并释放端口。
+- 查询和编辑场景对象、组件、Transform、材质、Particle Graph、相机及使用
+  GUID 标识的资产；
+- 进入、暂停、单帧步进、恢复和停止 Play Mode；
+- 通过引擎事件链注入键盘、鼠标、滚轮和文本输入；
+- 通过 semantic UI snapshot 读取当前帧实际绘制的控件；
+- 有界读取编辑器 Console；
+- 请求 Scene/Game 渲染目标截图及 GPU object pick；
+- 启动、观察、截图、读取日志并正常关闭受管理的 Debug Player；
+- 管理验证 attempt、checkpoint、trace 和 blocker report。
 
-新项目依据 `default-libraries.json` 安装该插件。用户主动卸载后，普通启动不会自动装回；需要时可从已验证的官方离线制品重新安装。
+## 安装
 
-## Gateway 模型
+在 Infernux 插件管理器中安装 `infernux/mcp`，或直接导入发布的 `.inxpkg`
+文件。新项目也可以把它列入默认库。它和其它 InxPackage 一样可以禁用、卸载
+和重新安装。
 
-默认表面共有 14 个 gateway。客户端应先按领域搜索 operation，再按需获取完整 schema，最后通过相应 gateway 调用稳定的点分 ID。现有资产使用 GUID 寻址；路径只用于上下文或新建目标。场景与组件编辑进入共享 Undo journal，材质编辑使用资源事务，Particle Graph 必须通过严格文档解析和 AOT 编译后才能发布。
+默认 endpoint 为 `http://127.0.0.1:9713/mcp`。如需修改监听地址或端口，
+请在启动编辑器前设置 `INFERNUX_MCP_HOST` 或 `INFERNUX_MCP_PORT`。
 
-切换 profile 仍然是 Supervisor 控制的进程边界。revision 或 session 变化后，客户端必须重新发现 schema。
+## 调用方式
+
+客户端先搜索 operation schema，再通过 query、command、workflow、batch 或
+job gateway 调用选中的稳定 operation ID。
+
+搜索 operation：
+
+```json
+{
+  "tool": "operation_schema_search",
+  "arguments": {"query": "scene object create", "limit": 10}
+}
+```
+
+执行返回的 command：
+
+```json
+{
+  "tool": "operation_command_execute",
+  "arguments": {
+    "operation": "infernux.scene.object.create",
+    "arguments": {"name": "AgentCube", "primitive": "cube"}
+  }
+}
+```
+
+已有资产使用 GUID 寻址；场景对象和组件使用查询结果返回的身份标识。修改项目
+内容的命令会进入编辑器正常的事务和 Undo 服务。
+
+输入、语义 UI、引擎截图和 Player 验证需要由 Supervisor 管理的 validation
+会话。截图只读取引擎渲染目标并写入 review artifact，不使用操作系统或桌面截图。
+
+## 包结构
+
+- `Editor/infernux_mcp`：MCP server 和 operation adapter；
+- `InxPluginPages`：插件管理器内的说明页面；
+- `InxPackage.json`：`infernux/mcp` 包定义。
+
+本包要求 Infernux `>=0.3.7,<0.4`。
