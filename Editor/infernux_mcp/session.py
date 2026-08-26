@@ -40,7 +40,7 @@ _CURRENT: "McpSession | None" = None
 
 
 class McpPolicyError(RuntimeError):
-    """Raised when a tool call crosses its active MCP session boundary."""
+    """Raised when an operation crosses its active MCP session boundary."""
 
 
 @dataclass
@@ -117,7 +117,7 @@ def configure(project_path: str, config: dict[str, Any] | None = None) -> McpSes
         workaround_allowlist=[str(item) for item in (policy.get("workaround_allowlist") or []) if str(item)],
     )
     try:
-        from infernux_mcp.project_tools.trace import set_session_project_path
+        from infernux_mcp.trace import set_session_project_path
 
         set_session_project_path(root)
     except Exception:
@@ -319,7 +319,7 @@ def write_blocker(payload: dict[str, Any]) -> dict[str, Any]:
 def blocker_report_contract() -> dict[str, Any]:
     """Describe the required trace and evidence for a Repair Agent blocker report."""
     return {
-        "tool": "mcp_report_blocker",
+        "operation": "infernux.mcp.blocker.report",
         "allowed_categories": sorted(VALID_BLOCKER_CATEGORIES),
         "required_arguments": {
             "category": "One allowed category describing the owning layer.",
@@ -339,16 +339,15 @@ def blocker_report_contract() -> dict[str, Any]:
             "notes": "Concise additional triage context.",
         },
         "required_sequence": [
-            "Call mcp_attempt_start(task, checkpoint) before changing the editor or game.",
+            "Command infernux.mcp.attempt.start before changing the editor or game.",
             "Perform only the normal human-equivalent UI/input workflow; after an effectful click, wait for its rendered result before judging it.",
-            "Call mcp_attempt_stop() after the observation so the trace is saved.",
-            "Call mcp_report_blocker with all required arguments only when a reproducible blocker remains.",
+            "Command infernux.mcp.attempt.stop after the observation so the trace is saved.",
+            "Command infernux.mcp.blocker.report with all required arguments only when a reproducible blocker remains.",
         ],
         "post_action_observation_rule": (
-            "Synthetic input delivery proves the event reached the editor, not that the next ImGui frame has rendered "
-            "its result. After a click expected to change the UI or object graph, call editor_ui_wait_for_target for "
-            "the expected target; after opening or fronting an Editor window, call editor_ui_wait_for_window_focus "
-            "before treating a snapshot as evidence."
+            "Input delivery proves only that an event reached the editor. Observe the expected "
+            "rendered or object-graph state through an available formal operation before treating "
+            "the action as evidence."
         ),
         "debug_feedback_policy": "Report the blocker; do not create a workaround or mutate project internals.",
     }
@@ -363,7 +362,8 @@ def start_attempt(task: str, checkpoint: str) -> dict[str, Any]:
     if not checkpoint:
         if active.managed_checkpoints_required:
             raise McpPolicyError(
-                "Managed project attempts require a checkpoint from mcp_checkpoint_list."
+                "Managed project attempts require a checkpoint from "
+                "infernux.mcp.checkpoint.list."
             )
         checkpoint = "session-start"
     checkpoint_proof: dict[str, Any] = {
@@ -404,7 +404,7 @@ def start_attempt(task: str, checkpoint: str) -> dict[str, Any]:
             "file_count": baseline_ledger["file_count"],
             "total_bytes": baseline_ledger["total_bytes"],
         }
-    from infernux_mcp.project_tools.trace import start_trace
+    from infernux_mcp.trace import start_trace
 
     active.attempt_id = f"attempt-{uuid.uuid4().hex[:8]}"
     active.attempt_active = True
@@ -460,7 +460,7 @@ def stop_attempt() -> dict[str, Any]:
         if active.persistence_proof_path:
             response["persistence_proof_path"] = active.persistence_proof_path
         return response
-    from infernux_mcp.project_tools.trace import stop_trace
+    from infernux_mcp.trace import stop_trace
 
     result = stop_trace(active.project_root, save=True)
     trace = result.get("trace") or {}

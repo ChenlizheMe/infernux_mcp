@@ -35,6 +35,13 @@ from infernux_mcp import checkpoints as checkpoint_store
 VALID_MODES = frozenset({"developer_assist", "global_validation"})
 VALID_BUILD_PROFILES = frozenset({"debug_feedback", "release_exploration"})
 HANDOFF_STATES = frozenset({"idle", "started", "completed", "failed"})
+QUERY_GATEWAY = "operation_query_execute"
+COMMAND_GATEWAY = "operation_command_execute"
+PROJECT_INFO_OPERATION = "infernux.project.info"
+SUPERVISOR_SHUTDOWN_OPERATION = "infernux.mcp.supervisor.shutdown"
+CHECKPOINT_LIST_OPERATION = "infernux.mcp.checkpoint.list"
+CHECKPOINT_STATUS_OPERATION = "infernux.mcp.checkpoint.status"
+ATTEMPT_START_OPERATION = "infernux.mcp.attempt.start"
 
 
 @dataclass
@@ -867,8 +874,9 @@ class SupervisorSession:
         if not self._has_leased_editor_identity():
             raise RuntimeError("Cannot request a normal Editor shutdown without a verified Supervisor lease.")
         self._verify_attached_editor(timeout_seconds=timeout_seconds)
-        result = self._call_mcp_tool(
-            "mcp_supervisor_shutdown",
+        result = self._call_mcp_operation(
+            COMMAND_GATEWAY,
+            SUPERVISOR_SHUTDOWN_OPERATION,
             {"lease_token": self._supervisor_lease},
             timeout_seconds=timeout_seconds,
         )
@@ -1210,7 +1218,7 @@ class SupervisorSession:
 
         A handoff is intentionally not a scene backup or restore mechanism.  It
         records the declared checkpoint and refuses to terminate a managed Editor
-        unless ``project_info`` reports a clean scene in edit mode.
+        unless ``infernux.project.info`` reports a clean scene in edit mode.
         """
         next_mode = _require_choice("target_mode", target_mode, VALID_MODES)
         checkpoint = str(checkpoint or "").strip()
@@ -1356,7 +1364,7 @@ class SupervisorSession:
             return {"required": False, "editor_running": False}
 
         self._verify_attached_editor(timeout_seconds=timeout_seconds)
-        session_status = self._read_mcp_session_status(timeout_seconds=timeout_seconds)
+        session_status = self._read_host_session_status(timeout_seconds=timeout_seconds)
         if bool(session_status.get("attempt_active")):
             raise RuntimeError("Cannot hand off while a global validation attempt is still active.")
 
@@ -1376,28 +1384,74 @@ class SupervisorSession:
         }
 
     def _read_project_info(self, *, timeout_seconds: float) -> dict[str, Any]:
-        return self._call_mcp_tool("project_info", {}, timeout_seconds=timeout_seconds)
+        return self._call_mcp_operation(
+            QUERY_GATEWAY,
+            PROJECT_INFO_OPERATION,
+            {},
+            timeout_seconds=timeout_seconds,
+        )
 
-    def _read_mcp_session_status(self, *, timeout_seconds: float) -> dict[str, Any]:
-        return self._call_mcp_tool("mcp_session_status", {}, timeout_seconds=timeout_seconds)
+    def _read_host_session_status(self, *, timeout_seconds: float) -> dict[str, Any]:
+        status = self._call_mcp_gateway(
+            "host_session_status", {}, timeout_seconds=timeout_seconds
+        )
+        session = status.get("session")
+        if not isinstance(session, dict):
+            raise RuntimeError("host_session_status did not return a session object.")
+        return session
 
-    def _call_mcp_tool(self, tool_name: str, arguments: dict[str, Any], *, timeout_seconds: float) -> dict[str, Any]:
-        async def query_project_info() -> dict[str, Any]:
+    def _call_mcp_gateway(
+        self,
+        gateway_name: str,
+        arguments: dict[str, Any],
+        *,
+        timeout_seconds: float,
+    ) -> dict[str, Any]:
+        async def call_gateway() -> dict[str, Any]:
             async with self.create_loopback_client(timeout_seconds=timeout_seconds) as client:
-                result = await client.call_tool(tool_name, arguments)
+                result = await client.call_tool(gateway_name, arguments)
             payload = getattr(result, "data", None)
             if not isinstance(payload, dict):
                 payload = getattr(result, "structured_content", None)
             if not isinstance(payload, dict):
-                raise RuntimeError(f"{tool_name} returned an invalid MCP payload.")
+                raise RuntimeError(f"{gateway_name} returned an invalid MCP payload.")
             if payload.get("ok") is False:
-                raise RuntimeError(f"{tool_name} failed: {payload.get('error', 'unknown error')}")
+                raise RuntimeError(
+                    f"{gateway_name} failed: {payload.get('error', 'unknown error')}"
+                )
             info = payload.get("data", payload)
             if not isinstance(info, dict):
-                raise RuntimeError(f"{tool_name} did not return an object.")
+                raise RuntimeError(f"{gateway_name} did not return an object.")
             return info
 
-        return _run_async(query_project_info)
+        return _run_async(call_gateway)
+
+    def _call_mcp_operation(
+        self,
+        gateway_name: str,
+        operation: str,
+        arguments: dict[str, Any],
+        *,
+        timeout_seconds: float,
+    ) -> dict[str, Any]:
+        response = self._call_mcp_gateway(
+            gateway_name,
+            {"operation": operation, "arguments": arguments},
+            timeout_seconds=timeout_seconds,
+        )
+        if response.get("operation") != operation:
+            raise RuntimeError(
+                f"{gateway_name} returned the wrong operation identity for {operation}."
+            )
+        result = response.get("result")
+        if not isinstance(result, dict):
+            raise RuntimeError(f"{operation} returned an invalid operation payload.")
+        if result.get("ok") is False:
+            raise RuntimeError(f"{operation} failed: {result.get('error', 'unknown error')}")
+        data = result.get("data", result)
+        if not isinstance(data, dict):
+            raise RuntimeError(f"{operation} did not return an object.")
+        return data
 
     def _verify_attached_editor(self, *, timeout_seconds: float) -> dict[str, Any]:
         """Verify that an endpoint, lease, and project lock all name this exact Editor instance."""
@@ -1409,7 +1463,7 @@ class SupervisorSession:
                 "Cannot resume Supervisor session because its MCP endpoint is unavailable: "
                 f"{readiness.get('ready_error', 'unknown error')}"
             )
-        observed = self._read_mcp_session_status(timeout_seconds=timeout_seconds)
+        observed = self._read_host_session_status(timeout_seconds=timeout_seconds)
         observed_root = resolved_path(str(observed.get("project_root", "") or ""))
         observed_session_id = str(observed.get("session_id", "") or "")
         if not same_path(observed_root, self.project_root):
@@ -1441,7 +1495,7 @@ class SupervisorSession:
         shutdown ownership because the original private lease is unavailable.
         """
         try:
-            observed = self._read_mcp_session_status(timeout_seconds=timeout_seconds)
+            observed = self._read_host_session_status(timeout_seconds=timeout_seconds)
         except Exception:
             return False
         observed_root = resolved_path(str(observed.get("project_root", "") or ""))
@@ -1545,6 +1599,10 @@ class SupervisorSession:
             "--endpoint",
             self.mcp_endpoint,
         ]
+        checkpoint_list_arguments = json.dumps(
+            {"operation": CHECKPOINT_LIST_OPERATION, "arguments": {}},
+            separators=(",", ":"),
+        )
         return {
             "project_root": self.project_root,
             "working_directory": self.project_root,
@@ -1558,15 +1616,21 @@ class SupervisorSession:
             "health_endpoint": self.mcp_health_endpoint,
             "environment_activation": ["conda", "activate", "infernux"],
             "client_base_argv": base_argv,
-            "probe_argv": [*base_argv, "call", "mcp_session_status", "--args", "{}"],
+            "probe_argv": [*base_argv, "call", "host_session_status", "--args", "{}"],
             "list_tools_argv": [*base_argv, "list-tools"],
-            "checkpoint_list_argv": [*base_argv, "call", "mcp_checkpoint_list", "--args", "{}"],
+            "checkpoint_list_argv": [
+                *base_argv,
+                "call",
+                QUERY_GATEWAY,
+                "--args",
+                checkpoint_list_arguments,
+            ],
             "instructions": [
                 "Run probe_argv through the available shell before deciding that MCP tools are unavailable.",
                 "Use the returned MCP tool schema and current mode policy; do not infer unavailable privileged tools.",
                 "A missing directly injected connector is not an MCP outage when probe_argv succeeds.",
                 "Use Supervisor.switch_mode to move between developer_assist and global_validation; never assume a mode change happened until the returned endpoint identity and mode are verified.",
-                "For a managed attempt, call mcp_checkpoint_list, then mcp_checkpoint_status for the selected checkpoint before mcp_attempt_start; only the external Supervisor may create or restore checkpoints.",
+                f"For a managed attempt, query {CHECKPOINT_LIST_OPERATION}, then {CHECKPOINT_STATUS_OPERATION} for the selected checkpoint before commanding {ATTEMPT_START_OPERATION}; only the external Supervisor may create or restore checkpoints.",
             ],
         }
 

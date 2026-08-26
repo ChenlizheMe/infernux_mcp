@@ -69,7 +69,7 @@ def start_server(project_path: str, *, host: str = HOST, port: int = PORT) -> bo
     )
     if feature_enabled("session_call_log"):
         try:
-            from infernux_mcp.project_tools.trace import start_session_log
+            from infernux_mcp.trace import start_session_log
             info = start_session_log(project_path)
             Debug.log_internal(f"Infernux MCP session log initialized: {info.get('path')}")
         except Exception as exc:
@@ -145,11 +145,6 @@ def start_server(project_path: str, *, host: str = HOST, port: int = PORT) -> bo
 def stop_server() -> None:
     """Best-effort stop hook for editor shutdown."""
     global _server, _server_thread, _uvicorn_server, _server_error
-    try:
-        from infernux_mcp.tools.editor_ui import set_semantic_capture_enabled
-        set_semantic_capture_enabled(False)
-    except Exception as exc:
-        Debug.log_suppressed("infernux_mcp.stop_server.semantic_capture", exc)
     transport = _uvicorn_server
     if transport is not None:
         transport.should_exit = True
@@ -285,17 +280,6 @@ def _client_connection_configs(url: str) -> dict:
                 }
             },
         },
-        "codex": {
-            "file": ".codex/config.toml",
-            "format": "toml:mcp_servers",
-            "toml": (
-                "[mcp_servers.\"infernux-editor\"]\n"
-                f"url = \"{url}\"\n"
-                "enabled = true\n"
-                "startup_timeout_sec = 10\n"
-                "tool_timeout_sec = 120\n"
-            ),
-        },
     }
 
 
@@ -317,10 +301,7 @@ def _write_discovery_files(project_path: str, *, host: str, port: int) -> None:
             if client_name == "generic":
                 continue
             target = os.path.join(root, client["file"])
-            if client.get("format") == "toml:mcp_servers":
-                _upsert_toml_block(target, "infernux-editor", client["toml"])
-            else:
-                _merge_client_json_config(target, client["config"])
+            _merge_client_json_config(target, client["config"])
     except Exception as exc:
         Debug.log_suppressed("infernux_mcp.write_discovery_files", exc)
 
@@ -343,9 +324,6 @@ def _remove_discovery_files(project_path: str) -> None:
             if client_name == "generic":
                 continue
             target = os.path.join(root, client["file"])
-            if client.get("format") == "toml:mcp_servers":
-                _remove_toml_block(target, "infernux-editor")
-                continue
             root_key = next(iter(client["config"]), "")
             if root_key:
                 _remove_json_server(target, root_key, "infernux-editor")
@@ -378,40 +356,9 @@ def _remove_json_server(path: str, root_key: str, server_name: str) -> None:
     _write_or_remove_json(path, data)
 
 
-def _remove_toml_block(path: str, server_name: str) -> None:
-    if not os.path.isfile(path):
-        return
-    with open(path, "r", encoding="utf-8") as f:
-        text = f.read()
-    start = f"# BEGIN INFERNUX MCP {server_name}"
-    end = f"# END INFERNUX MCP {server_name}"
-    if start not in text or end not in text:
-        return
-    before, rest = text.split(start, 1)
-    _owned, after = rest.split(end, 1)
-    _write_or_remove_text(path, _join_unowned_text(before, after))
-
-
-def _join_unowned_text(before: str, after: str) -> str:
-    left = before.rstrip()
-    right = after.lstrip()
-    if left and right:
-        return left + "\n\n" + right
-    if left:
-        return left + "\n"
-    return right
-
-
 def _write_or_remove_json(path: str, value: dict) -> None:
     if value:
         _write_json_if_changed(path, value)
-        return
-    _remove_generated_file(path)
-
-
-def _write_or_remove_text(path: str, value: str) -> None:
-    if value.strip():
-        _write_text_if_changed(path, value)
         return
     _remove_generated_file(path)
 
@@ -422,7 +369,7 @@ def _remove_generated_file(path: str) -> None:
     except FileNotFoundError:
         return
     parent = os.path.dirname(path)
-    if os.path.basename(parent) in {".cursor", ".vscode", ".trae", ".gemini", ".codex"}:
+    if os.path.basename(parent) in {".cursor", ".vscode", ".trae", ".gemini"}:
         try:
             os.rmdir(parent)
         except OSError:
@@ -469,29 +416,6 @@ def _merge_client_json_config(path: str, config: dict) -> None:
         else:
             data[root_key] = root_value
     _write_json_if_changed(path, data)
-
-
-def _upsert_toml_block(path: str, server_name: str, block: str) -> None:
-    start = f"# BEGIN INFERNUX MCP {server_name}"
-    end = f"# END INFERNUX MCP {server_name}"
-    marked = f"{start}\n{block.rstrip()}\n{end}\n"
-    text = ""
-    if os.path.isfile(path):
-        with open(path, "r", encoding="utf-8") as f:
-            text = f.read()
-    if start in text and end in text:
-        before, rest = text.split(start, 1)
-        _old, after = rest.split(end, 1)
-        new_text = before.rstrip() + "\n\n" + marked + after.lstrip()
-    else:
-        duplicate_headers = (
-            f'[mcp_servers."{server_name}"]',
-            f"[mcp_servers.{server_name}]",
-        )
-        if any(header in text for header in duplicate_headers):
-            return
-        new_text = text.rstrip() + ("\n\n" if text.strip() else "") + marked
-    _write_text_if_changed(path, new_text)
 
 
 def _read_json_object(path: str) -> dict:

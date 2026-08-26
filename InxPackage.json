@@ -1,7 +1,7 @@
 {
   "reference": "infernux/mcp",
   "name": "Infernux MCP",
-  "version": "0.3.7",
+  "version": "0.1.0",
   "intro": "Default schema-driven MCP Host integration for Infernux Editor.",
   "requirements": "requirements.txt",
   "engine": ">=0.3.7,<0.4",

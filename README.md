@@ -5,10 +5,14 @@ Infernux editor. It owns the HTTP transport, session/workflow implementation,
 and the OperationSchema-to-MCP adapter; the engine core contains only the
 transport-neutral Host registry and owner-thread dispatcher.
 
-The default MCP surface exposes a small set of schema discovery, execution,
-batch, workflow, job, capability, and session gateways. Engine domains are
-registered as operations instead of hundreds of top-level MCP tools. The
-package lives entirely under `Editor/`, so it is excluded from Player builds.
+The default MCP surface exposes only schema discovery, execution, batch,
+workflow, job, capability, and session gateways. Behind those gateways the
+package owns formal operations for project/session state, scene and component
+authoring, GUID-addressed assets, materials, strict Particle Graph documents,
+editor/game cameras, and Play Mode. Every engine capability is implemented
+directly as an `OperationSchema`; there is no alternate flat-tool
+implementation or compatibility mapping. The package lives entirely under
+`Editor/`, so it is excluded from Player builds.
 
 ## Lifecycle
 
@@ -39,12 +43,12 @@ The default surface has 14 tools:
 - `mcp_ping`, `host_capabilities`, and `host_session_status` expose connection
   and revision state.
 
-For example, first search for a capability:
+For example, first search for a checkpoint capability:
 
 ```json
 {
   "tool": "operation_schema_search",
-  "arguments": {"query": "particle graph", "limit": 20}
+  "arguments": {"query": "checkpoint", "limit": 20}
 }
 ```
 
@@ -52,15 +56,20 @@ Then invoke the returned stable operation ID through the matching gateway:
 
 ```json
 {
-  "tool": "operation_command_execute",
+  "tool": "operation_query_execute",
   "arguments": {
-    "operation": "infernux.particle.graph.add.node",
-    "arguments": {"stage": "update", "type_id": "particle.attribute.orientation"}
+    "operation": "infernux.mcp.checkpoint.list",
+    "arguments": {}
   }
 }
 ```
 
-`developer_assist` owns direct authoring/build operations. The disjoint
-`global_validation` profile observes a running Player and interacts through
-the real input path. Switching profiles is a Supervisor-controlled process
-boundary; clients must rediscover schemas after the revision/session changes.
+The operation catalog is intentionally discovered at runtime. Clients should
+search by domain, fetch only the complete schemas they need, then execute the
+stable dotted IDs. Existing assets are addressed by GUID; paths are returned
+as context and are accepted only where a new destination must be chosen.
+Scene/component edits enter the editor's shared Undo journal, material edits
+use the editable-resource transaction, and Particle Graph edits must pass the
+strict document parser and AOT compiler before publication. Switching profiles
+remains a Supervisor-controlled process boundary; clients must rediscover
+schemas after revision/session changes.

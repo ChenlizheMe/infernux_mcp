@@ -1,8 +1,7 @@
-"""Minimal trace recorder for MCP tool calls."""
+"""Minimal trace recorder for MCP operation calls."""
 
 from __future__ import annotations
 
-from contextvars import ContextVar, Token
 import json
 import os
 import time
@@ -15,24 +14,6 @@ _active_trace: dict[str, Any] | None = None
 _last_trace: dict[str, Any] | None = None
 _session_project_path = ""
 _session_log_path = ""
-_public_tool_trace_depth: ContextVar[int] = ContextVar("infernux_mcp_public_tool_trace_depth", default=0)
-
-
-def begin_public_tool_trace() -> Token[int]:
-    """Mark a top-level MCP tool invocation so nested helper calls stay silent."""
-    return _public_tool_trace_depth.set(_public_tool_trace_depth.get() + 1)
-
-
-def end_public_tool_trace(token: Token[int]) -> None:
-    """Restore the nested-tool tracing state for the current MCP invocation."""
-    _public_tool_trace_depth.reset(token)
-
-
-def public_tool_trace_active() -> bool:
-    """Return whether an outer MCP tool wrapper owns the current trace entry."""
-    return _public_tool_trace_depth.get() > 0
-
-
 def set_session_project_path(project_path: str) -> dict[str, Any]:
     """Bind trace output to a project without creating a log file yet."""
     global _session_project_path, _session_log_path
@@ -131,8 +112,8 @@ def last_trace() -> dict[str, Any]:
     return {"trace": _last_trace}
 
 
-def record_tool_call(
-    name: str,
+def record_operation(
+    operation: str,
     *,
     ok: bool,
     elapsed_ms: float = 0.0,
@@ -140,10 +121,15 @@ def record_tool_call(
     result: Any = None,
     error: str = "",
 ) -> None:
-    if public_tool_trace_active():
-        return
     if _active_trace is None:
-        _record_session_tool_call(name, ok=ok, elapsed_ms=elapsed_ms, arguments=arguments, result=result, error=error)
+        _record_session_operation(
+            operation,
+            ok=ok,
+            elapsed_ms=elapsed_ms,
+            arguments=arguments,
+            result=result,
+            error=error,
+        )
         return
     try:
         from infernux_mcp.capabilities import feature_enabled
@@ -153,7 +139,7 @@ def record_tool_call(
         pass
     step = {
         "index": len(_active_trace["steps"]),
-        "tool": str(name),
+        "operation": str(operation),
         "ok": bool(ok),
         "elapsed_ms": round(float(elapsed_ms), 3),
     }
@@ -168,23 +154,8 @@ def record_tool_call(
     if error:
         step["error"] = str(error)
     _active_trace["steps"].append(step)
-    _record_session_tool_call(name, ok=ok, elapsed_ms=elapsed_ms, arguments=arguments, result=result, error=error)
-
-
-def record_tool_result(
-    name: str,
-    *,
-    ok: bool,
-    elapsed_ms: float = 0.0,
-    arguments: dict[str, Any] | None = None,
-    result: Any = None,
-    error: str = "",
-) -> None:
-    """Record a call with compact result data in the session log."""
-    if public_tool_trace_active():
-        return
-    _record_session_tool_call(
-        name,
+    _record_session_operation(
+        operation,
         ok=ok,
         elapsed_ms=elapsed_ms,
         arguments=arguments,
@@ -233,8 +204,8 @@ def _session_log_file(project_path: str) -> str:
     return os.path.join(resolved_path(root), "Logs", "mcp_session.jsonl")
 
 
-def _record_session_tool_call(
-    name: str,
+def _record_session_operation(
+    operation: str,
     *,
     ok: bool,
     elapsed_ms: float = 0.0,
@@ -250,9 +221,9 @@ def _record_session_tool_call(
     try:
         os.makedirs(os.path.dirname(path), exist_ok=True)
         entry = {
-            "event": "tool_call",
+            "event": "operation_call",
             "time": time.time(),
-            "tool": str(name),
+            "operation": str(operation),
             "ok": bool(ok),
             "elapsed_ms": round(float(elapsed_ms), 3),
         }
@@ -323,7 +294,11 @@ def _jsonable_summary(
         return value if len(value) <= max_string else value[:max_string] + "...<truncated>"
     if isinstance(value, dict):
         return {
-            str(k): _jsonable_summary(v, max_string=max_string, limit_name=limit_name)
+            str(k): (
+                "<redacted>"
+                if any(marker in str(k).casefold() for marker in ("token", "secret", "password", "lease"))
+                else _jsonable_summary(v, max_string=max_string, limit_name=limit_name)
+            )
             for k, v in list(value.items())[:40]
         }
     if isinstance(value, (list, tuple)):
