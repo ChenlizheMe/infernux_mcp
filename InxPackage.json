@@ -1,16 +1,12 @@
 {
-  "reference": "infernux.core.mcp",
+  "reference": "infernux/mcp",
   "name": "Infernux MCP",
-  "version": "0.0.1",
-  "intro": "Default editor integration for MCP-based tools and agents.",
-  "plugin_root": "Library/Packages/infernux.core.mcp",
-  "preload": [
-    "plugin.py"
-  ],
-  "requirements": "",
-  "player": {
-    "export": false,
-    "include": [],
-    "exclude": []
-  }
+  "version": "0.1.0",
+  "intro": "Let an MCP-compatible AI agent drive the Infernux Editor.",
+  "intros": {
+    "zh-CN": "让兼容 MCP 的 AI Agent 直接操作 Infernux 编辑器。"
+  },
+  "requirements": "requirements.txt",
+  "engine": ">=0.3.7,<0.4",
+  "dependencies": []
 }
