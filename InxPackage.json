@@ -2,7 +2,10 @@
   "reference": "infernux/mcp",
   "name": "Infernux MCP",
   "version": "0.1.0",
-  "intro": "Schema-driven local control plane connecting AI agents to the Infernux Editor.",
+  "intro": "Let an MCP-compatible AI agent drive the Infernux Editor.",
+  "intros": {
+    "zh-CN": "让兼容 MCP 的 AI Agent 直接操作 Infernux 编辑器。"
+  },
   "requirements": "requirements.txt",
   "engine": ">=0.3.7,<0.4",
   "dependencies": []
