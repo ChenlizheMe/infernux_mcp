@@ -20,13 +20,23 @@ _GUIDES = {
     },
     "validation": {
         "title": "Validation sessions",
-        "body": "Synthetic input, semantic UI observation, render-target capture, and standalone Player validation require a Supervisor-owned global_validation session. Capture additionally requires debug_feedback.",
+        "body": "Editor synthetic input, semantic UI observation, and editor render-target capture require a Supervisor-owned global_validation session. A developer_assist session may build and validate its standalone Debug Player when player capabilities are granted. Player and editor capture require debug_feedback.",
         "tags": ("validation", "supervisor", "capture", "input", "player"),
     },
     "authoring": {
         "title": "Authoring and Undo",
         "body": "Scene, component, material, particle, and asset commands enter authoritative editor services. Prefer GUID and object/component identities returned by queries instead of cached paths or display labels.",
         "tags": ("scene", "component", "material", "particle", "undo"),
+    },
+    "python-scripting": {
+        "title": "Python transforms and component properties",
+        "body": "Transform.rotation and local_rotation are quaternion values (quatf). For Euler angles in degrees, assign Vector3 to euler_angles or local_euler_angles. Before writing an unfamiliar component property, call infernux.scene.component.schema and use the declared field type, enum members, range, and readonly state.",
+        "tags": ("python", "script", "transform", "rotation", "quaternion", "component", "schema"),
+    },
+    "player-build": {
+        "title": "Building and validating a Player",
+        "body": "Use infernux.player.build through operation_job_submit for a long-running build, then poll the job. A debug_feedback build can be launched with infernux.player.validation.launch and controlled, observed, captured, and shut down through the validation operations.",
+        "tags": ("player", "build", "job", "validation", "debug_feedback"),
     },
 }
 

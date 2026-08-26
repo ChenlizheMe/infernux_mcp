@@ -106,7 +106,7 @@ def build_operations(project_path: str) -> tuple[Operation, ...]:
     return (
         session_operations
         + build_scene_operations()
-        + build_asset_operations()
+        + build_asset_operations(project_path)
         + build_material_operations()
         + build_particle_operations()
         + build_camera_operations()

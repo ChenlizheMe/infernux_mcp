@@ -118,23 +118,17 @@ def active_scene():
 
 
 def game_object(object_id: int):
-    normalized = int(object_id)
-    obj = active_scene().find_by_id(normalized)
-    if obj is None:
-        raise OperationError("scene.object_not_found", f"GameObject was not found: {normalized}")
-    return obj
+    return EditorAutomationHost.instance().scene_object(int(object_id))
+
+
+def components(object_id: int) -> list[Any]:
+    return list(EditorAutomationHost.instance().scene_components(int(object_id)))
 
 
 def component(object_id: int, component_id: int):
     obj = game_object(object_id)
-    target_id = int(component_id)
-    values = list(obj.get_components()) + list(obj.get_py_components())
-    for value in values:
-        if int(getattr(value, "component_id", 0) or 0) == target_id:
-            return obj, value
-    raise OperationError(
-        "scene.component_not_found",
-        f"Component {target_id} was not found on GameObject {int(object_id)}.",
+    return obj, EditorAutomationHost.instance().scene_component(
+        int(object_id), int(component_id)
     )
 
 
@@ -146,12 +140,24 @@ def serializable_component(value: Any) -> dict[str, object]:
         document = serializer() if callable(serializer) else {}
     except Exception:
         document = {}
-    return {
+    result = {
         "component_id": int(getattr(value, "component_id", 0) or 0),
         "type": str(getattr(value, "type_name", "") or type(value).__name__),
         "enabled": bool(getattr(value, "enabled", True)),
         "document": document if isinstance(document, Mapping) else {},
     }
+    script_guid = str(getattr(value, "_script_guid", "") or "")
+    script_path = str(getattr(value, "_script_path", "") or "")
+    type_guid_getter = getattr(type(value), "_get_type_guid", None)
+    type_guid = str(type_guid_getter() or "") if callable(type_guid_getter) else ""
+    if script_guid or script_path or type_guid:
+        result["python"] = {
+            "script_guid": script_guid,
+            "type_guid": type_guid,
+            "script_path": script_path,
+            "type_name": f"{type(value).__module__}.{type(value).__qualname__}",
+        }
+    return result
 
 
 def set_json_pointer(document: Mapping[str, Any], pointer: str, value: Any) -> dict[str, Any]:
@@ -196,6 +202,7 @@ __all__ = [
     "asset_identity",
     "asset_path",
     "component",
+    "components",
     "game_object",
     "interaction_core",
     "on_editor",

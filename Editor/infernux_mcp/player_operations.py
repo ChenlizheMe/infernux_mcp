@@ -5,15 +5,44 @@ from __future__ import annotations
 import json
 import os
 
-from Infernux.host import Operation, OperationError, OperationKind
+from Infernux.host import EditorAutomationHost, Operation, OperationError, OperationKind
 
 from infernux_mcp import session
 from infernux_mcp.operation_support import operation
 from infernux_mcp.supervisor import SupervisorSession
 
 
+_LOCAL_SUPERVISORS: dict[tuple[str, str], SupervisorSession] = {}
+
+
 def build_player_operations(project_path: str) -> tuple[Operation, ...]:
     return (
+        operation(
+            "infernux.player.build",
+            OperationKind.WORKFLOW,
+            "Build a standalone Player from project Build Settings.",
+            lambda output_dir="", game_name="", debug_mode=None, lto=None,
+            enable_jit=None, persist_settings=True: _build(
+                project_path,
+                output_dir=output_dir,
+                game_name=game_name,
+                debug_mode=debug_mode,
+                lto=lto,
+                enable_jit=enable_jit,
+                persist_settings=persist_settings,
+            ),
+            capability="player.write",
+            input_properties={
+                "output_dir": {"type": "string", "default": ""},
+                "game_name": {"type": "string", "default": ""},
+                "debug_mode": {"type": ["boolean", "null"], "default": None},
+                "lto": {"type": ["boolean", "null"], "default": None},
+                "enable_jit": {"type": ["boolean", "null"], "default": None},
+                "persist_settings": {"type": "boolean", "default": True},
+            },
+            side_effects=("Writes a standalone Player package and optionally Build Settings.",),
+            tags=("player", "build", "package", "workflow"),
+        ),
         operation(
             "infernux.player.validation.launch",
             OperationKind.COMMAND,
@@ -186,12 +215,49 @@ def build_player_operations(project_path: str) -> tuple[Operation, ...]:
 
 def _supervisor() -> SupervisorSession:
     try:
-        active = session.require_mode("global_validation")
+        active = session.current()
     except session.McpPolicyError as exc:
-        raise OperationError("player.mode_required", str(exc)) from exc
+        raise OperationError("player.session_required", str(exc)) from exc
     if active.build_profile != "debug_feedback":
         raise OperationError("player.unavailable", "Player validation requires debug_feedback.")
-    return SupervisorSession.resume(active.project_root, active.session_id, verify_mcp=False)
+    key = (active.project_root, active.session_id)
+    supervisor = _LOCAL_SUPERVISORS.get(key)
+    if supervisor is None:
+        try:
+            supervisor = SupervisorSession.attach_current_host(
+                active.project_root,
+                active.session_id,
+                mode=active.mode,
+                build_profile=active.build_profile,
+                editor_instance_id=active.editor_instance_id,
+                mcp_host=os.environ.get("INFERNUX_MCP_HOST", "127.0.0.1"),
+                mcp_port=int(os.environ.get("INFERNUX_MCP_PORT", "9713")),
+            )
+        except (OSError, RuntimeError, ValueError) as exc:
+            raise OperationError("player.supervisor_attach", str(exc)) from exc
+        _LOCAL_SUPERVISORS[key] = supervisor
+    return supervisor
+
+
+def _build(
+    project_path: str,
+    *,
+    output_dir: str = "",
+    game_name: str = "",
+    debug_mode: bool | None = None,
+    lto: bool | None = None,
+    enable_jit: bool | None = None,
+    persist_settings: bool = True,
+) -> dict[str, object]:
+    return EditorAutomationHost.instance().build_player(
+        project_path,
+        output_dir=output_dir,
+        game_name=game_name,
+        debug_mode=debug_mode,
+        lto=lto,
+        enable_jit=enable_jit,
+        persist_settings=bool(persist_settings),
+    )
 
 
 def _configured_executable(project_path: str) -> str:

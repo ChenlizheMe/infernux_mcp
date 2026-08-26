@@ -9,9 +9,7 @@ from Infernux.host import EditorAutomationHost, Operation, OperationError, Opera
 from .operation_support import (
     active_scene,
     asset_path,
-    component,
-    game_object,
-    interaction_core,
+    components,
     on_editor,
     operation,
     serializable_component,
@@ -124,11 +122,40 @@ def build_scene_operations() -> tuple[Operation, ...]:
             input_properties={
                 "object_id": {"type": "integer"},
                 "component_type": {"type": "string"},
+                "script_guid": {"type": "string", "default": ""},
             },
             required=("object_id", "component_type"),
             side_effects=("Attaches a component and records an Undo entry.",),
             reversible=True,
             tags=("scene", "component", "add", "authoring"),
+        ),
+        operation(
+            "infernux.scene.component.remove",
+            OperationKind.COMMAND,
+            "Remove one component through component history.",
+            _remove_component,
+            capability="scene.write",
+            input_properties={
+                "object_id": {"type": "integer"},
+                "component_id": {"type": "integer"},
+            },
+            required=("object_id", "component_id"),
+            side_effects=("Removes a component and records an Undo entry.",),
+            reversible=True,
+            tags=("scene", "component", "remove", "authoring"),
+        ),
+        operation(
+            "infernux.scene.component.schema",
+            OperationKind.QUERY,
+            "Describe the authoritative writable fields of one component.",
+            _component_schema,
+            capability="scene.read",
+            input_properties={
+                "object_id": {"type": "integer"},
+                "component_id": {"type": "integer"},
+            },
+            required=("object_id", "component_id"),
+            tags=("scene", "component", "schema", "property"),
         ),
         operation(
             "infernux.scene.component.property.set",
@@ -167,6 +194,18 @@ def build_scene_operations() -> tuple[Operation, ...]:
             side_effects=("Durably writes the active scene asset.",),
             tags=("scene", "document", "save"),
         ),
+        operation(
+            "infernux.scene.reload",
+            OperationKind.COMMAND,
+            "Reload the active scene from disk, optionally discarding unsaved edits.",
+            _reload_scene,
+            capability="scene.write",
+            input_properties={
+                "discard_changes": {"type": "boolean", "default": False},
+            },
+            side_effects=("Replaces the active scene with its persisted document.",),
+            tags=("scene", "document", "reload", "discard"),
+        ),
     )
 
 
@@ -176,7 +215,7 @@ def _hierarchy() -> dict[str, object]:
 
         def serialize(obj) -> dict[str, object]:
             transform = obj.get_transform()
-            values = list(obj.get_components()) + list(obj.get_py_components())
+            values = components(obj.id)
             return {
                 "id": int(obj.id),
                 "name": str(obj.name),
@@ -220,19 +259,14 @@ def _create_object(kind: str, parent_id: int = 0, name: str = "") -> dict[str, o
 def _delete_objects(object_ids: list[int]) -> dict[str, object]:
     def delete():
         ids = [int(value) for value in object_ids]
-        changed = interaction_core().scene_objects.delete_ids(ids, selection_owner_id="automation")
-        if not changed:
-            raise OperationError("scene.edit_rejected", "No GameObjects were deleted.")
-        return {"deleted": ids}
+        return {"deleted": EditorAutomationHost.instance().delete_scene_objects(ids)}
 
     return on_editor("infernux.scene.object.delete", delete)
 
 
 def _set_object_property(object_id: int, property: str, value: Any) -> dict[str, object]:
     def edit():
-        changed = interaction_core().scene_objects.set_object_property(object_id, property, value)
-        if not changed:
-            raise OperationError("scene.edit_rejected", "GameObject property edit was rejected or unchanged.")
+        EditorAutomationHost.instance().set_scene_object_property(object_id, property, value)
         return {"object_id": int(object_id), "property": property, "value": value}
 
     return on_editor("infernux.scene.object.property.set", edit)
@@ -247,9 +281,7 @@ def _set_transform(
     values = {"position": position, "rotation": rotation, "scale": scale}
 
     def edit():
-        changed = interaction_core().scene_objects.set_transforms([object_id], [values])
-        if not changed:
-            raise OperationError("scene.edit_rejected", "Transform edit was rejected or unchanged.")
+        EditorAutomationHost.instance().set_scene_transforms(object_id, values)
         return {"object_id": int(object_id), "transform": values}
 
     return on_editor("infernux.scene.object.transform.set", edit)
@@ -257,21 +289,43 @@ def _set_transform(
 
 def _set_parent(object_ids: list[int], parent_id: int = 0) -> dict[str, object]:
     def edit():
-        mode = "parent" if int(parent_id) else "root"
-        changed = interaction_core().scene_objects.move_hierarchy(object_ids, mode, int(parent_id))
-        if not changed:
-            raise OperationError("scene.edit_rejected", "Hierarchy edit was rejected or unchanged.")
+        EditorAutomationHost.instance().set_scene_parent(object_ids, int(parent_id))
         return {"object_ids": [int(value) for value in object_ids], "parent_id": int(parent_id)}
 
     return on_editor("infernux.scene.object.parent.set", edit)
 
 
-def _add_component(object_id: int, component_type: str) -> dict[str, object]:
+def _add_component(
+    object_id: int, component_type: str, script_guid: str = ""
+) -> dict[str, object]:
     def edit():
-        value = interaction_core().components.add(game_object(object_id), component_type)
+        value = EditorAutomationHost.instance().add_scene_component(
+            object_id, component_type, script_guid=script_guid
+        )
         return {"object_id": int(object_id), "component": serializable_component(value)}
 
     return on_editor("infernux.scene.component.add", edit)
+
+
+def _remove_component(object_id: int, component_id: int) -> dict[str, object]:
+    def edit():
+        EditorAutomationHost.instance().remove_scene_component(object_id, component_id)
+        return {
+            "object_id": int(object_id),
+            "component_id": int(component_id),
+            "removed": True,
+        }
+
+    return on_editor("infernux.scene.component.remove", edit)
+
+
+def _component_schema(object_id: int, component_id: int) -> dict[str, object]:
+    return on_editor(
+        "infernux.scene.component.schema",
+        lambda: EditorAutomationHost.instance().scene_component_schema(
+            object_id, component_id
+        ),
+    )
 
 
 def _set_component_property(
@@ -281,10 +335,9 @@ def _set_component_property(
     value: Any,
 ) -> dict[str, object]:
     def edit():
-        _, target = component(object_id, component_id)
-        changed = interaction_core().components.set_field(target, field, value)
-        if not changed:
-            raise OperationError("scene.edit_rejected", "Component field edit was rejected or unchanged.")
+        target = EditorAutomationHost.instance().set_scene_component_field(
+            object_id, component_id, field, value
+        )
         return {"object_id": int(object_id), "component": serializable_component(target)}
 
     return on_editor("infernux.scene.component.property.set", edit)
@@ -308,6 +361,15 @@ def _save_scene() -> dict[str, object]:
         }
 
     return on_editor("infernux.scene.save", save)
+
+
+def _reload_scene(discard_changes: bool = False) -> dict[str, object]:
+    return on_editor(
+        "infernux.scene.reload",
+        lambda: EditorAutomationHost.instance().reload_scene(
+            discard_changes=bool(discard_changes)
+        ),
+    )
 
 
 __all__ = ["build_scene_operations"]

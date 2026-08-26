@@ -20,6 +20,7 @@ the project session.
 - request Scene or Game render-target captures and GPU object picks;
 - launch, observe, capture, inspect logs from, and shut down a managed Debug
   Player;
+- build standalone Player packages through the job gateway;
 - manage validation attempts, checkpoints, traces, and blocker reports.
 
 ## Installation
@@ -54,7 +55,7 @@ Execute the returned command:
   "tool": "operation_command_execute",
   "arguments": {
     "operation": "infernux.scene.object.create",
-    "arguments": {"name": "AgentCube", "primitive": "cube"}
+    "arguments": {"kind": "cube", "name": "AgentCube"}
   }
 }
 ```
@@ -63,10 +64,18 @@ Existing assets are addressed by GUID. Scene objects and components use the
 identities returned by scene queries. Commands that modify project content use
 the Editor's normal transaction and Undo services.
 
-Input, semantic UI observation, engine capture, and Player validation are
-available in a Supervisor-managed validation session. Render captures contain
-engine render-target pixels and are written as review artifacts; desktop or
-operating-system screen capture is never used.
+Long-running work such as `infernux.player.build` should be submitted with
+`operation_job_submit` and polled with `operation_job_status`. Component
+properties can be discovered with `infernux.scene.component.schema`; this is
+also the authoritative source for enum values, vector shapes, ranges, and
+read-only fields.
+
+Editor input, semantic UI observation, and Editor render capture are available
+in a Supervisor-managed `global_validation` session. Standalone Debug Player
+validation can also run in `developer_assist` when the corresponding Player
+capabilities are granted. Render captures contain engine render-target pixels
+and are written as review artifacts; desktop or operating-system screen capture
+is never used.
 
 ## Package layout
 

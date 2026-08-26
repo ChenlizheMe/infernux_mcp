@@ -34,17 +34,24 @@ _CREATE_KINDS = {
 }
 
 
-def build_asset_operations() -> tuple[Operation, ...]:
+def build_asset_operations(project_path: str) -> tuple[Operation, ...]:
     return (
         operation(
             "infernux.asset.list",
             OperationKind.QUERY,
             "List project assets with stable GUID identities.",
-            _list_assets,
+            lambda query="", extension="", root="assets", limit=200: _list_assets(
+                project_path, query, extension, root, limit
+            ),
             capability="asset.read",
             input_properties={
                 "query": {"type": "string", "default": ""},
                 "extension": {"type": "string", "default": ""},
+                "root": {
+                    "type": "string",
+                    "enum": ["assets", "packages", "all"],
+                    "default": "assets",
+                },
                 "limit": {"type": "integer", "default": 200},
             },
             tags=("asset", "guid", "list", "search"),
@@ -71,7 +78,9 @@ def build_asset_operations() -> tuple[Operation, ...]:
             "infernux.asset.create",
             OperationKind.COMMAND,
             "Create a project asset through the same transaction as the Project panel.",
-            _create_asset,
+            lambda kind, directory, name, variant="": _create_asset(
+                project_path, kind, directory, name, variant
+            ),
             capability="asset.write",
             input_properties={
                 "kind": {"type": "string"},
@@ -123,14 +132,36 @@ def build_asset_operations() -> tuple[Operation, ...]:
     )
 
 
-def _list_assets(query: str = "", extension: str = "", limit: int = 200) -> dict[str, object]:
+def _list_assets(
+    project_path: str,
+    query: str = "",
+    extension: str = "",
+    root: str = "assets",
+    limit: int = 200,
+) -> dict[str, object]:
     def read():
         database = asset_database()
         needle = str(query or "").casefold()
         suffix = str(extension or "").casefold()
+        scope = str(root or "assets").strip().casefold()
+        if scope not in {"assets", "packages", "all"}:
+            raise OperationError("operation.invalid_arguments", f"Unknown asset root: {root}")
+        project_root = os.path.abspath(project_path)
+        roots = {
+            "assets": (os.path.join(project_root, "Assets"),),
+            "packages": (os.path.join(project_root, "Packages"),),
+            "all": (
+                os.path.join(project_root, "Assets"),
+                os.path.join(project_root, "Packages"),
+            ),
+        }[scope]
         values = []
+        scoped_count = 0
         for path in database.get_all_asset_paths():
-            text = str(path)
+            text = os.path.abspath(str(path))
+            if not any(_is_within(text, candidate) for candidate in roots):
+                continue
+            scoped_count += 1
             if needle and needle not in text.casefold():
                 continue
             if suffix and not text.casefold().endswith(suffix):
@@ -138,7 +169,13 @@ def _list_assets(query: str = "", extension: str = "", limit: int = 200) -> dict
             values.append(asset_identity(text))
             if len(values) >= max(1, min(int(limit), 2000)):
                 break
-        return {"assets": values, "returned": len(values), "catalog_count": int(database.asset_count)}
+        return {
+            "assets": values,
+            "returned": len(values),
+            "root": scope,
+            "catalog_count": scoped_count,
+            "global_catalog_count": int(database.asset_count),
+        }
 
     return on_editor("infernux.asset.list", read)
 
@@ -150,23 +187,52 @@ def _inspect_asset(asset_guid: str) -> dict[str, object]:
     )
 
 
-def _create_asset(kind: str, directory: str, name: str, variant: str = "") -> dict[str, object]:
+def _create_asset(
+    project_path: str,
+    kind: str,
+    directory: str,
+    name: str,
+    variant: str = "",
+) -> dict[str, object]:
     def create():
         normalized = str(kind or "").strip()
         if normalized not in _CREATE_KINDS:
             raise OperationError("operation.invalid_arguments", f"Unknown asset kind: {kind}")
+        project_root = os.path.abspath(project_path)
+        resolved_directory = os.path.abspath(
+            directory if os.path.isabs(directory) else os.path.join(project_root, directory)
+        )
+        if not any(
+            _is_within(resolved_directory, os.path.join(project_root, candidate))
+            for candidate in ("Assets", "Packages")
+        ):
+            raise OperationError(
+                "operation.invalid_arguments",
+                "Assets may only be created inside the project Assets or Packages roots.",
+            )
+        if normalized == "folder":
+            existing = os.path.join(resolved_directory, str(name or "").strip())
+            if os.path.isdir(existing):
+                return {"asset": asset_identity(existing), "already_exists": True}
         path = EditorAutomationHost.instance().create_project_asset(
             normalized,
-            directory,
+            resolved_directory,
             name,
             _CREATE_KINDS[normalized],
             variant,
         )
         if not path:
             raise OperationError("asset.create_rejected", "Project asset creation was rejected.")
-        return {"asset": asset_identity(path)}
+        return {"asset": asset_identity(path), "already_exists": False}
 
     return on_editor("infernux.asset.create", create)
+
+
+def _is_within(path: str, root: str) -> bool:
+    try:
+        return os.path.commonpath((os.path.abspath(path), os.path.abspath(root))) == os.path.abspath(root)
+    except ValueError:
+        return False
 
 
 def _delete_assets(asset_guids: list[str]) -> dict[str, object]:

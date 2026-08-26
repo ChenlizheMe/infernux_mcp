@@ -17,6 +17,7 @@ Infernux MCP 用于把兼容 MCP 的 AI Agent 连接到 Infernux 编辑器。Age
 - 有界读取编辑器 Console；
 - 请求 Scene/Game 渲染目标截图及 GPU object pick；
 - 启动、观察、截图、读取日志并正常关闭受管理的 Debug Player；
+- 通过 job gateway 构建独立 Player 包；
 - 管理验证 attempt、checkpoint、trace 和 blocker report。
 
 ## 安装
@@ -49,7 +50,7 @@ job gateway 调用选中的稳定 operation ID。
   "tool": "operation_command_execute",
   "arguments": {
     "operation": "infernux.scene.object.create",
-    "arguments": {"name": "AgentCube", "primitive": "cube"}
+    "arguments": {"kind": "cube", "name": "AgentCube"}
   }
 }
 ```
@@ -57,8 +58,14 @@ job gateway 调用选中的稳定 operation ID。
 已有资产使用 GUID 寻址；场景对象和组件使用查询结果返回的身份标识。修改项目
 内容的命令会进入编辑器正常的事务和 Undo 服务。
 
-输入、语义 UI、引擎截图和 Player 验证需要由 Supervisor 管理的 validation
-会话。截图只读取引擎渲染目标并写入 review artifact，不使用操作系统或桌面截图。
+`infernux.player.build` 等耗时操作应通过 `operation_job_submit` 提交，再使用
+`operation_job_status` 查询进度。修改不熟悉的组件属性前，可调用
+`infernux.scene.component.schema` 获取字段类型、枚举值、范围和只读状态。
+
+编辑器输入、语义 UI 和编辑器渲染截图需要由 Supervisor 管理的
+`global_validation` 会话。拥有对应 Player capability 时，`developer_assist`
+也可以验证独立 Debug Player。截图只读取引擎渲染目标并写入 review artifact，
+不使用操作系统或桌面截图。
 
 ## 包结构
 
