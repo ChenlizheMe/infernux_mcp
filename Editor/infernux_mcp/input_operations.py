@@ -160,7 +160,11 @@ def _require_validation() -> None:
     try:
         session.require_mode("global_validation")
     except session.McpPolicyError as exc:
-        raise OperationError("input.mode_required", str(exc)) from exc
+        raise OperationError(
+            "input.mode_required",
+            str(exc),
+            details=session.mode_remediation("global_validation"),
+        ) from exc
 
 
 def _status() -> dict[str, object]:

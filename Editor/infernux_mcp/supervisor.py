@@ -1603,6 +1603,7 @@ class SupervisorSession:
             {"operation": CHECKPOINT_LIST_OPERATION, "arguments": {}},
             separators=(",", ":"),
         )
+        schema_list_arguments = json.dumps({"limit": 200}, separators=(",", ":"))
         return {
             "project_root": self.project_root,
             "working_directory": self.project_root,
@@ -1618,6 +1619,13 @@ class SupervisorSession:
             "client_base_argv": base_argv,
             "probe_argv": [*base_argv, "call", "host_session_status", "--args", "{}"],
             "list_tools_argv": [*base_argv, "list-tools"],
+            "schema_list_argv": [
+                *base_argv,
+                "call",
+                "operation_schema_list",
+                "--args",
+                schema_list_arguments,
+            ],
             "checkpoint_list_argv": [
                 *base_argv,
                 "call",
@@ -1627,7 +1635,9 @@ class SupervisorSession:
             ],
             "instructions": [
                 "Run probe_argv through the available shell before deciding that MCP tools are unavailable.",
-                "Use the returned MCP tool schema and current mode policy; do not infer unavailable privileged tools.",
+                "Run schema_list_argv once and cache its compact schemas until host_session_status reports a different revision.",
+                "Use operation_batch_execute for ordered groups of known operations instead of issuing one gateway call per step.",
+                "Use the returned MCP tool schema and current mode policy; a mode_required error contains an exact command_argv for obtaining the required mode.",
                 "A missing directly injected connector is not an MCP outage when probe_argv succeeds.",
                 "Use Supervisor.switch_mode to move between developer_assist and global_validation; never assume a mode change happened until the returned endpoint identity and mode are verified.",
                 f"For a managed attempt, query {CHECKPOINT_LIST_OPERATION}, then {CHECKPOINT_STATUS_OPERATION} for the selected checkpoint before commanding {ATTEMPT_START_OPERATION}; only the external Supervisor may create or restore checkpoints.",

@@ -146,7 +146,7 @@ def _register_gateway_tools(mcp, project_path: str) -> None:
 
     @gateway("operation_schema_list")
     def operation_schema_list(
-        kind: str = "", capability: str = "", offset: int = 0, limit: int = 50
+        kind: str = "", capability: str = "", offset: int = 0, limit: int = 200
     ) -> dict[str, object]:
         """List compact OperationSchema records with deterministic pagination."""
 
@@ -311,7 +311,23 @@ def _register_gateway_tools(mcp, project_path: str) -> None:
             value = session.status()
         except Exception as exc:
             value = {"project_path": project_path, "error": f"{type(exc).__name__}: {exc}"}
-        return _ok({"session": value, **adapter_status()})
+        maximum = int((_config.get("limits") or {}).get("batch_max_steps", 100))
+        return _ok({
+            "session": value,
+            **adapter_status(),
+            "workflow_guidance": {
+                "schema_discovery": (
+                    "Call operation_schema_list once with limit=200, then cache the compact "
+                    "schemas until the reported revision changes."
+                ),
+                "batch_execution": (
+                    "Use operation_batch_execute for ordered groups of known operations instead "
+                    "of making one gateway round trip per operation."
+                ),
+                "schema_page_size": 200,
+                "batch_max_steps": maximum,
+            },
+        })
 
 
 def _compact_schema(value: Mapping[str, object]) -> dict[str, object]:

@@ -69,7 +69,11 @@ def _require_validation() -> None:
     try:
         session.require_mode("global_validation")
     except session.McpPolicyError as exc:
-        raise OperationError("ui.mode_required", str(exc)) from exc
+        raise OperationError(
+            "ui.mode_required",
+            str(exc),
+            details=session.mode_remediation("global_validation"),
+        ) from exc
 
 
 def _snapshot(label: str = "", kind: str = "", window: str = "", semantic_id: str = "", visible_only: bool = True, limit: int = 500):

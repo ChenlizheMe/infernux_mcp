@@ -22,7 +22,7 @@ Point your MCP client at `http://127.0.0.1:9713/mcp`. Only localhost is accepted
 
 ## Talking to it
 
-Search for an operation, read its schema, then execute:
+Begin with `host_session_status`. Fetch `operation_schema_list` once with `limit: 200`, cache the compact catalog, and refresh it only when the reported revision changes. Search for an operation, read its full schema only when needed, then execute:
 
 ```json
 {
@@ -42,6 +42,8 @@ Search for an operation, read its schema, then execute:
 ```
 
 Do not invent field names. Ask `infernux.scene.component.schema` first. Slow work such as a Player build should go through `operation_job_submit`.
+
+Group known, ordered calls with `operation_batch_execute` instead of paying for one transport round trip per operation. If an operation returns `mode_required`, its error details include the exact argument vector the agent should run to switch modes. A Supervisor-managed Editor is restarted and verified automatically; an unmanaged Editor must be reopened after its project policy is changed.
 
 ## Requirements
 

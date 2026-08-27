@@ -9,6 +9,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import sys
 import time
 import uuid
 import zipfile
@@ -154,6 +155,70 @@ def require_mode(*allowed: str) -> McpSession:
         expected = ", ".join(sorted({str(item) for item in allowed}))
         raise McpPolicyError(f"Tool requires MCP mode {expected}; active mode is {session.mode}.")
     return session
+
+
+def mode_remediation(required_mode: str) -> dict[str, Any]:
+    """Describe the exact safe action an agent can take to change MCP mode."""
+    active = current()
+    required = str(required_mode or "").strip()
+    if required not in VALID_MODES:
+        raise ValueError(f"Unsupported MCP mode: {required or '<empty>'}.")
+
+    from infernux_mcp import capabilities
+
+    config_argv = [
+        sys.executable,
+        "-c",
+        (
+            "from infernux_mcp import capabilities; import sys; "
+            "root, mode = sys.argv[1:3]; "
+            "config = capabilities.load_capability_config(root); "
+            "config['enabled'] = True; config['profile'] = mode; "
+            "print(capabilities.save_config(config, root))"
+        ),
+        active.project_root,
+        required,
+    ]
+    result: dict[str, Any] = {
+        "active_mode": active.mode,
+        "required_mode": required,
+        "project_root": active.project_root,
+        "config_path": capabilities.config_path(active.project_root),
+        "restart_required": True,
+        "config_update_argv": config_argv,
+    }
+    if active.supervisor_lease:
+        result.update({
+            "recommended_action": "run_supervisor_switch_argv",
+            "supervisor_switch_argv": [
+                sys.executable,
+                "-c",
+                (
+                    "from infernux_mcp.supervisor import SupervisorSession; import sys; "
+                    "managed = SupervisorSession.resume(sys.argv[1], sys.argv[2]); "
+                    "print(managed.switch_mode(sys.argv[3], "
+                    "reason='MCP operation requires this mode'))"
+                ),
+                active.project_root,
+                active.session_id,
+                required,
+            ],
+            "instructions": (
+                "Run supervisor_switch_argv as an argument vector outside this MCP request, "
+                "then reconnect to the endpoint returned by the command. The Supervisor will "
+                "restart the Editor and verify the new mode."
+            ),
+        })
+    else:
+        result.update({
+            "recommended_action": "run_config_update_argv_then_restart_editor",
+            "instructions": (
+                "Run config_update_argv as an argument vector outside this MCP request, then "
+                "close and reopen the Editor normally. Reconnect only after host_session_status "
+                "reports the required mode."
+            ),
+        })
+    return result
 
 
 def require_release_exploration() -> McpSession:

@@ -22,7 +22,7 @@ MCP 客户端指到 `http://127.0.0.1:9713/mcp`。只认本机。换端口的话
 
 ## 怎么调
 
-先搜 operation，再读它的参数说明，再执行：
+先调用 `host_session_status`。用 `limit: 200` 调一次 `operation_schema_list`，缓存这份精简目录；只有返回的 revision 变化时才重新读取。接着搜索 operation，只在需要时读取完整参数说明，然后执行：
 
 ```json
 {
@@ -42,6 +42,8 @@ MCP 客户端指到 `http://127.0.0.1:9713/mcp`。只认本机。换端口的话
 ```
 
 别猜字段名。改不熟的组件前先问 `infernux.scene.component.schema`。打 Player 这种慢活用 `operation_job_submit`。
+
+已经知道的一组有序操作应交给 `operation_batch_execute`，不要让每一步都产生一次通信往返。如果 operation 返回 `mode_required`，错误详情会附上 Agent 可直接执行的完整参数数组。由 Supervisor 管理的编辑器会自动重启并校验新模式；普通编辑器在项目权限配置改变后需要重新打开。
 
 ## 要求
 
