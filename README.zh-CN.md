@@ -45,6 +45,8 @@ MCP 客户端指到 `http://127.0.0.1:9713/mcp`。只认本机。换端口的话
 
 已经知道的一组有序操作应交给 `operation_batch_execute`，不要让每一步都产生一次通信往返。如果 operation 返回 `mode_required`，错误详情会附上 Agent 可直接执行的完整参数数组。由 Supervisor 管理的编辑器会自动重启并校验新模式；普通编辑器在项目权限配置改变后需要重新打开。
 
+所有自动化输入都进入引擎自己的事件队列；需要让游戏逻辑跨多个模拟帧采样按键时，使用 `infernux.input.key.hold`。画面验证读取 Scene、Game 或 Player 的渲染目标。
+
 ## 要求
 
 Infernux `0.3.7` 及以上的 `0.3.x`。

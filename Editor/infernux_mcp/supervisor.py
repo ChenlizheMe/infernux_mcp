@@ -1640,6 +1640,7 @@ class SupervisorSession:
                 "Use the returned MCP tool schema and current mode policy; a mode_required error contains an exact command_argv for obtaining the required mode.",
                 "A missing directly injected connector is not an MCP outage when probe_argv succeeds.",
                 "Use Supervisor.switch_mode to move between developer_assist and global_validation; never assume a mode change happened until the returned endpoint identity and mode are verified.",
+                "Use MCP engine input operations for interaction and render-target capture operations for visual validation.",
                 f"For a managed attempt, query {CHECKPOINT_LIST_OPERATION}, then {CHECKPOINT_STATUS_OPERATION} for the selected checkpoint before commanding {ATTEMPT_START_OPERATION}; only the external Supervisor may create or restore checkpoints.",
             ],
         }

@@ -45,6 +45,8 @@ Do not invent field names. Ask `infernux.scene.component.schema` first. Slow wor
 
 Group known, ordered calls with `operation_batch_execute` instead of paying for one transport round trip per operation. If an operation returns `mode_required`, its error details include the exact argument vector the agent should run to switch modes. A Supervisor-managed Editor is restarted and verified automatically; an unmanaged Editor must be reopened after its project policy is changed.
 
+Automation input goes through the engine event queue. Use `infernux.input.key.hold` when gameplay must sample a key across multiple simulation frames. Visual validation reads Scene, Game, or Player render targets.
+
 ## Requirements
 
 Infernux `0.3.7` or later in the `0.3.x` line.

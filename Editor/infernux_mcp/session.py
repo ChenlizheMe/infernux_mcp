@@ -186,6 +186,7 @@ def mode_remediation(required_mode: str) -> dict[str, Any]:
         "config_path": capabilities.config_path(active.project_root),
         "restart_required": True,
         "config_update_argv": config_argv,
+        "capture_source": "engine_render_target_only",
     }
     if active.supervisor_lease:
         result.update({
@@ -214,7 +215,8 @@ def mode_remediation(required_mode: str) -> dict[str, Any]:
             "recommended_action": "run_config_update_argv_then_restart_editor",
             "instructions": (
                 "Run config_update_argv as an argument vector outside this MCP request, then "
-                "close and reopen the Editor normally. Reconnect only after host_session_status "
+                "request a normal application restart through an available lifecycle mechanism "
+                "or ask the user to reopen the Editor. Reconnect only after host_session_status "
                 "reports the required mode."
             ),
         })

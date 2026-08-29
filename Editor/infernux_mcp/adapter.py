@@ -324,6 +324,9 @@ def _register_gateway_tools(mcp, project_path: str) -> None:
                     "Use operation_batch_execute for ordered groups of known operations instead "
                     "of making one gateway round trip per operation."
                 ),
+                "visual_capture": (
+                    "Use Scene, Game, or Player render-target capture for visual validation."
+                ),
                 "schema_page_size": 200,
                 "batch_max_steps": maximum,
             },
