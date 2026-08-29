@@ -498,13 +498,19 @@ class SupervisorSession:
                 }
             try:
                 with open(self.player_ready_path, "r", encoding="utf-8") as stream:
-                    ready = stream.read(64).strip()
+                    ready = stream.read(4096).strip()
             except OSError:
                 ready = ""
             if ready == "ENGINE_LOADED":
                 self._player_ready = True
                 self._persist_state()
                 return self.status() | {"player_ready": True, "ready_error": ""}
+            if ready.startswith("ERROR:"):
+                return self.status() | {
+                    "player_ready": False,
+                    "ready_error": ready.removeprefix("ERROR:").strip()
+                    or "PlayerHost failed before engine readiness.",
+                }
             time.sleep(0.05)
         return self.status() | {"player_ready": False, "ready_error": "Timed out waiting for Player readiness."}
 

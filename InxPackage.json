@@ -7,6 +7,6 @@
     "zh-CN": "让兼容 MCP 的 AI Agent 直接操作 Infernux 编辑器。"
   },
   "requirements": "requirements.txt",
-  "engine": ">=0.3.7,<0.4",
+  "engine": ">=0.4,<0.5",
   "dependencies": []
 }
