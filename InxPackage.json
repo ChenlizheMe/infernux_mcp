@@ -1,12 +1,12 @@
 {
   "reference": "infernux/mcp",
   "name": "Infernux MCP",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "intro": "Let an MCP-compatible AI agent drive the Infernux Editor.",
   "intros": {
     "zh-CN": "让兼容 MCP 的 AI Agent 直接操作 Infernux 编辑器。"
   },
   "requirements": "requirements.txt",
-  "engine": ">=0.3.7,<0.4",
+  "engine": ">=0.4,<0.5",
   "dependencies": []
 }

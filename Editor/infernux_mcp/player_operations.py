@@ -18,26 +18,52 @@ _LOCAL_SUPERVISORS: dict[tuple[str, str], SupervisorSession] = {}
 def build_player_operations(project_path: str) -> tuple[Operation, ...]:
     return (
         operation(
+            "infernux.player.targets",
+            OperationKind.QUERY,
+            "List Player targets contributed by core and enabled platform plugins.",
+            lambda: EditorAutomationHost.instance().player_build_targets(),
+            capability="player.read",
+            tags=("player", "build", "target", "capability"),
+        ),
+        operation(
             "infernux.player.build",
             OperationKind.WORKFLOW,
-            "Build a standalone Player from project Build Settings.",
-            lambda output_dir="", game_name="", debug_mode=None, lto=None,
-            enable_jit=None, persist_settings=True: _build(
+            "Build one registered Player target through the shared build service.",
+            lambda target="", output_dir="", game_name="", debug_mode=None,
+            lto=None, enable_jit=None, android_artifact="",
+            compress_resources=None, persist_settings=True: _build(
                 project_path,
+                target=target,
                 output_dir=output_dir,
                 game_name=game_name,
                 debug_mode=debug_mode,
                 lto=lto,
                 enable_jit=enable_jit,
+                android_artifact=android_artifact,
+                compress_resources=compress_resources,
                 persist_settings=persist_settings,
             ),
             capability="player.write",
             input_properties={
+                "target": {
+                    "type": "string",
+                    "default": "",
+                    "description": "Registered target ID; empty uses Build Settings or the current desktop target.",
+                },
                 "output_dir": {"type": "string", "default": ""},
                 "game_name": {"type": "string", "default": ""},
                 "debug_mode": {"type": ["boolean", "null"], "default": None},
                 "lto": {"type": ["boolean", "null"], "default": None},
                 "enable_jit": {"type": ["boolean", "null"], "default": None},
+                "android_artifact": {
+                    "type": "string",
+                    "enum": ["", "apk", "aab"],
+                    "default": "",
+                },
+                "compress_resources": {
+                    "type": ["boolean", "null"],
+                    "default": None,
+                },
                 "persist_settings": {"type": "boolean", "default": True},
             },
             side_effects=("Writes a standalone Player package and optionally Build Settings.",),
@@ -242,20 +268,26 @@ def _supervisor() -> SupervisorSession:
 def _build(
     project_path: str,
     *,
+    target: str = "",
     output_dir: str = "",
     game_name: str = "",
     debug_mode: bool | None = None,
     lto: bool | None = None,
     enable_jit: bool | None = None,
+    android_artifact: str = "",
+    compress_resources: bool | None = None,
     persist_settings: bool = True,
 ) -> dict[str, object]:
     return EditorAutomationHost.instance().build_player(
         project_path,
+        target=target,
         output_dir=output_dir,
         game_name=game_name,
         debug_mode=debug_mode,
         lto=lto,
         enable_jit=enable_jit,
+        android_artifact=android_artifact,
+        compress_resources=compress_resources,
         persist_settings=bool(persist_settings),
     )
 

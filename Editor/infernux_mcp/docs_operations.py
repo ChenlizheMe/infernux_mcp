@@ -20,7 +20,7 @@ _GUIDES = {
     },
     "validation": {
         "title": "Validation sessions",
-        "body": "Editor synthetic input, semantic UI observation, and editor render-target capture require a Supervisor-owned global_validation session. A developer_assist session may build and validate its standalone Debug Player when player capabilities are granted. Player and editor capture require debug_feedback.",
+        "body": "Editor synthetic input, semantic UI observation, and editor render-target capture require a Supervisor-owned global_validation session. Synthetic input is delivered through the engine event queue, and visual validation reads the editor or Player render target. A developer_assist session may build and validate its standalone Debug Player when player capabilities are granted. Player and editor capture require debug_feedback.",
         "tags": ("validation", "supervisor", "capture", "input", "player"),
     },
     "authoring": {

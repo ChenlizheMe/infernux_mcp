@@ -28,7 +28,7 @@ def build_input_operations() -> tuple[Operation, ...]:
         operation(
             "infernux.input.key",
             OperationKind.COMMAND,
-            "Queue one keyboard transition through the editor event path.",
+            "Queue one keyboard transition through the engine event path.",
             _key,
             capability="input.write",
             input_properties={
@@ -38,7 +38,7 @@ def build_input_operations() -> tuple[Operation, ...]:
                 **common,
             },
             required=("key", "pressed"),
-            side_effects=("Injects one SDL keyboard event into the Editor.",),
+            side_effects=("Injects one trusted SDL keyboard event into the Editor.",),
             tags=("input", "keyboard", "editor", "validation"),
         ),
         operation(
@@ -54,6 +54,24 @@ def build_input_operations() -> tuple[Operation, ...]:
             required=("keys",),
             side_effects=("Injects ordered SDL keyboard transitions into the Editor.",),
             tags=("input", "keyboard", "chord", "editor", "validation"),
+        ),
+        operation(
+            "infernux.input.key.hold",
+            OperationKind.WORKFLOW,
+            "Hold one key through the engine input queue for an explicit duration.",
+            _key_hold,
+            capability="input.write",
+            input_properties={
+                "key": {"type": ["string", "integer"]},
+                "duration_seconds": {"type": "number", "default": 0.25},
+                "repeat": {"type": "boolean", "default": False},
+                "timeout_seconds": {"type": "number", "default": 3.0},
+            },
+            required=("key",),
+            side_effects=(
+                "Queues a key-down transition, preserves it for the requested engine time window, then queues key-up.",
+            ),
+            tags=("input", "keyboard", "hold", "gameplay", "editor", "validation"),
         ),
         operation(
             "infernux.input.pointer.move",
@@ -122,12 +140,12 @@ def build_input_operations() -> tuple[Operation, ...]:
         operation(
             "infernux.input.text",
             OperationKind.COMMAND,
-            "Send UTF-8 text to the currently focused editor control.",
+            "Send UTF-8 text to the Editor's logical input target.",
             _text,
             capability="input.write",
             input_properties={"text": {"type": "string"}, **common},
             required=("text",),
-            side_effects=("Injects UTF-8 text into the focused Editor control.",),
+            side_effects=("Injects UTF-8 text into the Editor's logical focus target.",),
             tags=("input", "text", "editor", "validation"),
         ),
         operation(
@@ -270,6 +288,49 @@ def _key_chord(keys: list, timeout_seconds: float = 3.0):
         "keys": values,
         "press_sequences": press_sequences,
         "release_sequences": release_sequences,
+        "delivered": True,
+    }
+
+
+def _key_hold(
+    key,
+    duration_seconds: float = 0.25,
+    repeat: bool = False,
+    timeout_seconds: float = 3.0,
+):
+    duration = float(duration_seconds)
+    if not math.isfinite(duration) or duration <= 0:
+        raise OperationError(
+            "operation.invalid_arguments",
+            "duration_seconds must be positive and finite",
+        )
+    pressed = _submit(
+        "key",
+        key=key,
+        pressed=True,
+        repeat=repeat,
+        wait_for_delivery=True,
+        timeout_seconds=timeout_seconds,
+    )
+    released = None
+    try:
+        # The Editor and simulation continue on their own threads while this
+        # workflow retains the logical engine key state.
+        time.sleep(duration)
+    finally:
+        released = _submit(
+            "key",
+            key=key,
+            pressed=False,
+            repeat=False,
+            wait_for_delivery=True,
+            timeout_seconds=timeout_seconds,
+        )
+    return {
+        "key": key,
+        "duration_seconds": duration,
+        "press_sequence": int(pressed["sequence"]),
+        "release_sequence": int(released["sequence"]),
         "delivered": True,
     }
 
