@@ -1131,34 +1131,6 @@ class SupervisorSession:
         self._mark_editor_stopped()
         return self.status() | {"stopped": True, "already_stopped": False, "forced": True}
 
-    def handoff_mode(
-        self,
-        target_mode: str,
-        *,
-        checkpoint: str,
-        reason: str = "",
-        build_profile: str | None = None,
-        recording_enabled: bool | None = None,
-        restart_editor: bool = True,
-        timeout_seconds: float = 30.0,
-    ) -> dict[str, Any]:
-        """Compatibility spelling for the explicit :meth:`switch_mode` API.
-
-        Legacy callers must still provide a checkpoint. New orchestration code
-        should use ``switch_mode`` so the default un-managed session checkpoint
-        is explicit in the returned audit record.
-        """
-        with self._operation_lock():
-            return self._handoff_mode_locked(
-                target_mode,
-                checkpoint=checkpoint,
-                reason=reason,
-                build_profile=build_profile,
-                recording_enabled=recording_enabled,
-                restart_editor=restart_editor,
-                timeout_seconds=timeout_seconds,
-            )
-
     def switch_mode(
         self,
         target_mode: str,
