@@ -43,21 +43,12 @@ def checkpoint_directory(artifact_root: str, checkpoint_id: str) -> str:
     return os.path.join(root, "checkpoints", safe_id)
 
 
-def capture_project_ledger(
-    project_root: str,
-    *,
-    force_include_paths: set[str] | frozenset[str] = frozenset(),
-) -> dict[str, Any]:
-    return _capture_project_ledger(project_root, force_include_paths=force_include_paths)
+def capture_project_ledger(project_root: str) -> dict[str, Any]:
+    return _capture_project_ledger(project_root)
 
 
-def _capture_project_ledger(
-    project_root: str,
-    *,
-    force_include_paths: set[str] | frozenset[str] = frozenset(),
-) -> dict[str, Any]:
+def _capture_project_ledger(project_root: str) -> dict[str, Any]:
     root = resolved_path(project_root)
-    forced = {portable_path(str(path)) for path in force_include_paths}
     entries: list[dict[str, Any]] = []
     roots_present: list[str] = []
     for root_name in CHECKPOINT_ROOTS:
@@ -78,7 +69,7 @@ def _capture_project_ledger(
             for filename in sorted(files):
                 path = os.path.join(current_root, filename)
                 relative = relative_path(path, root)
-                if relative not in forced and _ignore_file(filename, relative):
+                if _ignore_file(filename, relative):
                     continue
                 _reject_link(path, root)
                 if not os.path.isfile(path):
@@ -178,8 +169,7 @@ def load_checkpoint(
         raise CheckpointError("Checkpoint manifest has no valid project ledger.")
     payload_path = os.path.join(directory, str(manifest.get("payload_root", "payload") or "payload"))
     if verify_payload:
-        recorded_paths = recorded_ledger_paths(ledger)
-        payload_ledger = _capture_project_ledger(payload_path, force_include_paths=recorded_paths)
+        payload_ledger = _capture_project_ledger(payload_path)
         if payload_ledger["digest"] != str(ledger.get("digest", "")):
             raise CheckpointError("Checkpoint payload no longer matches its manifest hash.")
     return manifest | {
@@ -225,7 +215,7 @@ def checkpoint_status(
     }
     if not include_current:
         return result
-    current = capture_project_ledger(project_root, force_include_paths=recorded_ledger_paths(expected))
+    current = capture_project_ledger(project_root)
     delta = diff_ledgers(expected, current)
     return result | {
         "current_match": not _delta_has_changes(delta),
@@ -284,8 +274,8 @@ def restore_checkpoint(
         verify_payload=True,
     )
     expected = checkpoint["ledger"]
-    recorded_paths = recorded_ledger_paths(expected)
-    before = capture_project_ledger(project, force_include_paths=recorded_paths)
+    recorded_paths = _ledger_paths(expected)
+    before = capture_project_ledger(project)
     journal = os.path.join(
         resolved_path(artifact_root),
         "checkpoint-restores",
@@ -316,7 +306,7 @@ def restore_checkpoint(
                 raise
             replaced.append((root_name, had_current))
 
-        after = capture_project_ledger(project, force_include_paths=recorded_paths)
+        after = capture_project_ledger(project)
         if after["digest"] != expected["digest"]:
             raise CheckpointError("Restored project ledger does not match the checkpoint manifest.")
     except Exception:
@@ -383,7 +373,7 @@ def _delta_has_changes(delta: dict[str, Any]) -> bool:
     return any(int(delta.get(f"{kind}_count", 0)) for kind in ("added", "modified", "deleted"))
 
 
-def recorded_ledger_paths(ledger: dict[str, Any]) -> set[str]:
+def _ledger_paths(ledger: dict[str, Any]) -> set[str]:
     return {
         portable_path(str(entry.get("path", "") or ""))
         for entry in ledger.get("entries", [])

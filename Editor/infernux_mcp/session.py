@@ -447,10 +447,7 @@ def start_attempt(task: str, checkpoint: str) -> dict[str, Any]:
                 verify_payload=True,
             )
             baseline_ledger = copy.deepcopy(managed["ledger"])
-            current_ledger = checkpoint_store.capture_project_ledger(
-                active.project_root,
-                force_include_paths=checkpoint_store.recorded_ledger_paths(baseline_ledger),
-            )
+            current_ledger = checkpoint_store.capture_project_ledger(active.project_root)
             delta = checkpoint_store.diff_ledgers(baseline_ledger, current_ledger)
         except (OSError, ValueError, checkpoint_store.CheckpointError) as exc:
             raise McpPolicyError(f"Managed checkpoint validation failed: {exc}") from exc
@@ -588,10 +585,7 @@ def _write_attempt_manifest(active: McpSession, trace: dict[str, Any]) -> str:
 def _write_persistence_proof(active: McpSession, trace: dict[str, Any]) -> str:
     if not active.managed_checkpoints_required or not active.attempt_baseline_ledger:
         return ""
-    current_ledger = checkpoint_store.capture_project_ledger(
-        active.project_root,
-        force_include_paths=checkpoint_store.recorded_ledger_paths(active.attempt_baseline_ledger),
-    )
+    current_ledger = checkpoint_store.capture_project_ledger(active.project_root)
     delta = checkpoint_store.diff_ledgers(active.attempt_baseline_ledger, current_ledger)
     trace_id = str(trace.get("trace_id", "") or "")
     payload = {
