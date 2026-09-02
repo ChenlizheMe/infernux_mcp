@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import hashlib
 import math
 import os
 import re
@@ -143,11 +142,6 @@ def _capture_status(capture_id: int):
     )
     if value["terminal"] and output and os.path.isfile(output):
         value["byte_size"] = os.path.getsize(output)
-        digest = hashlib.sha256()
-        with open(output, "rb") as stream:
-            for block in iter(lambda: stream.read(1024 * 1024), b""):
-                digest.update(block)
-        value["sha256"] = digest.hexdigest()
     return value
 
 

@@ -18,7 +18,6 @@ from Infernux.host import (
 
 
 OWNER = "infernux/mcp"
-VERSION = 0
 
 
 def operation(
@@ -36,7 +35,6 @@ def operation(
 ) -> Operation:
     schema = OperationSchema(
         id=operation_id,
-        version=VERSION,
         kind=kind,
         summary=summary,
         input_schema={

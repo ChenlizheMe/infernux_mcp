@@ -1,4 +1,4 @@
-"""OperationSchema v0 adapter and the small default MCP gateway surface."""
+"""OperationSchema adapter and the small default MCP gateway surface."""
 
 from __future__ import annotations
 
@@ -17,7 +17,6 @@ from Infernux.host import (
 
 
 OWNER = "infernux/mcp"
-GATEWAY_VERSION = 0
 MAX_GATEWAY_TOOLS = 32
 
 _registry: OperationRegistry | None = None
@@ -119,7 +118,6 @@ def adapter_status() -> dict[str, object]:
     registry = _registry
     return {
         "owner": OWNER,
-        "schema_version": GATEWAY_VERSION,
         "active": registry is not None,
         "revision": 0 if registry is None else registry.revision,
         "operation_count": len(_operation_ids),
@@ -168,7 +166,7 @@ def _register_gateway_tools(mcp, project_path: str) -> None:
 
     @gateway("operation_schema_get")
     def operation_schema_get(operation: str) -> dict[str, object]:
-        """Return one complete OperationSchema v0 document."""
+        """Return one complete OperationSchema document."""
 
         try:
             return _ok(_require_registry().get(operation).schema.document())
