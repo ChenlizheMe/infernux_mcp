@@ -116,7 +116,6 @@ def _request_capture(source: str = "game", file_name: str = ""):
         "status": "pending_gpu",
         "artifact_uri": os.path.relpath(output, active.artifact_root).replace("\\", "/"),
         "pixel_origin": "engine_render_target",
-        "os_capture_fallback": False,
         "pixel_access": False,
         "human_review_only": True,
     }
@@ -134,7 +133,6 @@ def _capture_status(capture_id: int):
             "capture_id": int(capture_id),
             "artifact_uri": os.path.relpath(output, active.artifact_root).replace("\\", "/") if output else "",
             "pixel_origin": "engine_render_target",
-            "os_capture_fallback": False,
             "pixel_access": False,
             "human_review_only": True,
             "terminal": str(value.get("status", "")) in _TERMINAL,
