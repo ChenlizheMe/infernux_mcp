@@ -25,6 +25,7 @@ from Infernux.engine.path_utils import (
     resolved_path,
     same_path,
 )
+from Infernux.engine.platform_player_bootstrap import read_player_build_manifest
 
 
 HANDOFF_STATES = frozenset({"idle", "started", "completed", "failed"})
@@ -38,14 +39,19 @@ def _validate_player_executable(executable_path: str, project_root: str) -> tupl
     output_root = os.path.dirname(launcher)
     game_name = os.path.splitext(os.path.basename(launcher))[0]
     data_root = resolved_path(os.path.join(output_root, f"{game_name}_Data"))
-    manifest_path = os.path.join(data_root, "BuildManifest.json")
-    manifest = _read_json_object(manifest_path)
+    try:
+        manifest = read_player_build_manifest(data_root)
+    except (OSError, RuntimeError, ValueError):
+        manifest = {}
     if not manifest:
-        raise FileNotFoundError(f"Player BuildManifest was not found: {manifest_path}")
+        raise FileNotFoundError(
+            "Player BuildManifest was not found in the sealed asset catalog: "
+            f"{data_root}"
+        )
 
     player_manifest = _read_json_object(os.path.join(data_root, "Player.inxmanifest"))
     product = player_manifest.get("product") or {}
-    if product.get("layout") != "direct_native_runtime":
+    if product.get("layout") != "single_executable_native_packages":
         raise ValueError("Player executable is not the launcher of a current Infernux Player layout.")
     entry_points = [str(value or "") for value in product.get("entry_points", []) or []]
     if not bool(product.get("single_entry_point", False)) or entry_points != [os.path.basename(launcher)]:
@@ -68,7 +74,10 @@ def _player_data_root(runtime_executable: str) -> str:
         os.path.join(runtime_directory, f"{os.path.splitext(os.path.basename(runtime))[0]}_Data")
     )
     player_manifest = _read_json_object(os.path.join(single_entry_data, "Player.inxmanifest"))
-    if (player_manifest.get("product") or {}).get("layout") != "direct_native_runtime":
+    if (
+        (player_manifest.get("product") or {}).get("layout")
+        != "single_executable_native_packages"
+    ):
         raise ValueError("Player runtime executable is not inside the current organized Player layout.")
     return single_entry_data
 
