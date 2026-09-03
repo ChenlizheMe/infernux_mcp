@@ -2,7 +2,7 @@
 
 This package only exposes a handful of MCP tools. The actual work lives in operations.
 
-![Calling an operation](media/agent-loop.png)
+![Calling an operation](media/agent_loop.png)
 
 1. Search for the operation you need.
 2. Read its schema. Do not guess argument names.

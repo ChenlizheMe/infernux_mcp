@@ -2,7 +2,7 @@
 
 这个包只露出很少几个 MCP 入口。真正能干的事都在 operation 目录里。
 
-![调用 operation](media/agent-loop.png)
+![调用 operation](media/agent_loop.png)
 
 1. 搜一下要用的 operation。
 2. 把它的参数说明读完，别猜字段名。

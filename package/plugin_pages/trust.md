@@ -2,7 +2,7 @@
 
 This is a local development hook, not a public server. It only binds to localhost.
 
-![Local-only access](media/trust-gates.png)
+![Local-only access](media/trust_gates.png)
 
 Every call is checked against the operation schema and `ProjectSettings/mcp_capabilities.json`. Scene edits go through the Editor's normal undo stack.
 

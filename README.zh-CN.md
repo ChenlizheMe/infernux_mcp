@@ -4,7 +4,7 @@
 
 装上之后，编辑器进程里会起一个本机服务，默认地址是 `http://127.0.0.1:9713/mcp`。Agent 可以看当前项目、改场景、进 Play Mode，还能把游戏真正渲染出来的画面抓回来。
 
-![Infernux MCP](InxPluginPages/media/system-overview.png)
+![Infernux MCP](package/plugin_pages/media/system_overview.png)
 
 新项目会默认带着这个包。不需要的话，在「插件」窗口里关掉或卸掉就行。
 

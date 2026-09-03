@@ -2,7 +2,7 @@
 
 这是本机开发接口，不是公网服务。只听 localhost。
 
-![仅本机访问](media/trust-gates.png)
+![仅本机访问](media/trust_gates.png)
 
 每次调用都会核对：有没有这个 operation、参数对不对、项目有没有开这个权限（`ProjectSettings/mcp_capabilities.json`）。改场景走编辑器自己的撤销，不会偷偷改磁盘。
 

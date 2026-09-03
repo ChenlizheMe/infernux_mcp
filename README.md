@@ -4,7 +4,7 @@ Let an MCP-compatible AI agent drive the Infernux Editor.
 
 The package starts a local server inside the Editor at `http://127.0.0.1:9713/mcp`. From there an agent can inspect the project, edit the scene, enter Play Mode, and capture what the game actually rendered.
 
-![Infernux MCP](InxPluginPages/media/system-overview.png)
+![Infernux MCP](package/plugin_pages/media/system_overview.png)
 
 New projects include this package. Turn it off or uninstall it from the Plugins window if you do not want it.
 
