@@ -29,6 +29,7 @@ from Infernux.engine.path_utils import (
 
 HANDOFF_STATES = frozenset({"idle", "started", "completed", "failed"})
 
+
 def _validate_player_executable(executable_path: str, project_root: str) -> tuple[str, dict[str, Any]]:
     launcher = resolved_path(str(executable_path or ""))
     if not os.path.isfile(launcher):
@@ -44,46 +45,20 @@ def _validate_player_executable(executable_path: str, project_root: str) -> tupl
 
     player_manifest = _read_json_object(os.path.join(data_root, "Player.inxmanifest"))
     product = player_manifest.get("product") or {}
-    if product.get("layout") in {
-        "infernux-single-entry-player",
-        "single_executable_native_packages",
-    }:
-        entry_points = [str(value or "") for value in product.get("entry_points", []) or []]
-        if not bool(product.get("single_entry_point", False)) or entry_points != [os.path.basename(launcher)]:
-            raise ValueError("Player single-entry manifest does not match the selected executable.")
-        build_output = manifest.get("build_output") or {}
-        if str(build_output.get("project_identity", "") or "") != path_fingerprint(project_root):
-            raise ValueError("Player build output belongs to a different project.")
-        if not bool(manifest.get("debug_build", False)):
-            raise RuntimeError("Supervisor validation control is available only in a Debug Player build.")
-        runtime_policy = (manifest.get("runtime_contract") or {}).get("runtime_policy") or {}
-        if runtime_policy.get("player_control") != "token_authenticated":
-            raise RuntimeError("Debug Player does not expose the authenticated validation control channel.")
-        return launcher, manifest
-
-    layout_path = os.path.join(data_root, "PlayerLayout.json")
-    layout = _read_json_object(layout_path)
-    if layout.get("layout") != "infernux-windows-player":
+    if product.get("layout") != "direct_native_runtime":
         raise ValueError("Player executable is not the launcher of a current Infernux Player layout.")
-    if str(layout.get("launcher", "") or "") != os.path.basename(launcher):
-        raise ValueError("Player layout launcher does not match the selected executable.")
-    if str(layout.get("data_directory", "") or "") != os.path.basename(data_root):
-        raise ValueError("Player layout data directory does not match the selected executable.")
-    if str(layout.get("runtime_directory", "") or "") != "Runtime":
-        raise ValueError("Player layout runtime directory is invalid.")
-
-    runtime_executable = resolved_path(os.path.join(data_root, "Runtime", "InfernuxPlayer.exe"))
-    if not is_path_within(runtime_executable, data_root, allow_root=False) or not os.path.isfile(runtime_executable):
-        raise FileNotFoundError(f"Player runtime executable was not found: {runtime_executable}")
-
-    marker = _read_json_object(os.path.join(data_root, ".infernux-build-output"))
-    if marker.get("tool") != "Infernux" or marker.get("kind") != "build-output":
-        raise ValueError("Player executable is not inside a verified Infernux build output directory.")
-    if str(marker.get("project_identity", "") or "") != path_fingerprint(project_root):
+    entry_points = [str(value or "") for value in product.get("entry_points", []) or []]
+    if not bool(product.get("single_entry_point", False)) or entry_points != [os.path.basename(launcher)]:
+        raise ValueError("Player single-entry manifest does not match the selected executable.")
+    build_output = manifest.get("build_output") or {}
+    if str(build_output.get("project_identity", "") or "") != path_fingerprint(project_root):
         raise ValueError("Player build output belongs to a different project.")
     if not bool(manifest.get("debug_build", False)):
         raise RuntimeError("Supervisor validation control is available only in a Debug Player build.")
-    return runtime_executable, manifest
+    runtime_policy = (manifest.get("runtime_contract") or {}).get("runtime_policy") or {}
+    if runtime_policy.get("player_control") != "token_authenticated":
+        raise RuntimeError("Debug Player does not expose the authenticated validation control channel.")
+    return launcher, manifest
 
 
 def _player_data_root(runtime_executable: str) -> str:
@@ -93,17 +68,9 @@ def _player_data_root(runtime_executable: str) -> str:
         os.path.join(runtime_directory, f"{os.path.splitext(os.path.basename(runtime))[0]}_Data")
     )
     player_manifest = _read_json_object(os.path.join(single_entry_data, "Player.inxmanifest"))
-    if (player_manifest.get("product") or {}).get("layout") in {
-        "infernux-single-entry-player",
-        "single_executable_native_packages",
-    }:
-        return single_entry_data
-    if os.path.basename(runtime_directory) != "Runtime":
+    if (player_manifest.get("product") or {}).get("layout") != "direct_native_runtime":
         raise ValueError("Player runtime executable is not inside the current organized Player layout.")
-    data_root = resolved_path(os.path.dirname(runtime_directory))
-    if not os.path.basename(data_root).endswith("_Data"):
-        raise ValueError("Player runtime data directory is invalid.")
-    return data_root
+    return single_entry_data
 
 
 def _resolve_player_start_scene(start_scene: str, project_root: str, manifest: dict[str, Any]) -> str:
