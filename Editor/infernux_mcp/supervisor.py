@@ -777,7 +777,16 @@ class SupervisorSession:
             response = self._call_player_control("shutdown", {}, timeout_seconds=timeout_seconds)
             if not bool(response.get("close_requested")):
                 raise RuntimeError("Player rejected the normal Supervisor shutdown request.")
-            if not _wait_for_pid_exit(int(player["pid"]), timeout_seconds):
+            process = self._player_process
+            if process is not None and int(process.pid) == int(player["pid"]):
+                try:
+                    process.wait(timeout=timeout_seconds)
+                    stopped = True
+                except subprocess.TimeoutExpired:
+                    stopped = False
+            else:
+                stopped = _wait_for_pid_exit(int(player["pid"]), timeout_seconds)
+            if not stopped:
                 raise RuntimeError(
                     "Player did not complete normal engine shutdown before the timeout. "
                     "The Supervisor left it running and did not force-terminate the process."
