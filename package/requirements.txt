@@ -1,2 +1,2 @@
 mcp>=1.24,<2
-fastmcp
+fastmcp>=3,<4
