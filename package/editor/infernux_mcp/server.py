@@ -100,7 +100,7 @@ def start_server(project_path: str, *, host: str = HOST, port: int = PORT) -> bo
 
     import uvicorn
 
-    app = _server.http_app(transport="streamable-http")
+    app = _server.streamable_http_app()
     _uvicorn_server = uvicorn.Server(
         uvicorn.Config(
             app,
@@ -447,15 +447,10 @@ def _write_text_if_changed(path: str, text: str) -> None:
 
 
 def _import_fastmcp():
-    try:
-        from fastmcp import FastMCP
-        return FastMCP
-    except Exception as first:
-        try:
-            from mcp.server.fastmcp import FastMCP
-            return FastMCP
-        except Exception as second:
-            raise ImportError(
-                "Need PyPI packages 'mcp' and 'fastmcp' (see ProjectSettings/requirements.txt). "
-                f"Primary import failed: {first!r}; fallback failed: {second!r}"
-            ) from second
+    # The embedded server is owned by the official MCP SDK.  The separate
+    # ``fastmcp`` distribution is used by our loopback client, but its server
+    # class has a different ASGI application contract.  Mixing the two behind
+    # an import fallback makes startup depend on import order.
+    from mcp.server.fastmcp import FastMCP
+
+    return FastMCP
