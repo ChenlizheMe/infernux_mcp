@@ -49,4 +49,4 @@ Automation input goes through the engine event queue. Use `infernux.input.key.ho
 
 ## Requirements
 
-Infernux `0.3.7` or later in the `0.3.x` line.
+Infernux `0.4.x` (`>=0.4,<0.5`), matching `package/inx_package.json`.

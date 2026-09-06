@@ -49,4 +49,4 @@ MCP 客户端指到 `http://127.0.0.1:9713/mcp`。只认本机。换端口的话
 
 ## 要求
 
-Infernux `0.3.7` 及以上的 `0.3.x`。
+Infernux `0.4.x`（`>=0.4,<0.5`），与 `package/inx_package.json` 一致。
