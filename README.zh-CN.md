@@ -1,28 +1,31 @@
 # Infernux MCP
 
-让兼容 MCP 的 AI Agent 直接操作 Infernux 编辑器。
+这是 [Infernux](https://github.com/ChenlizheMe/Infernux) 游戏引擎的官方 MCP 插件。它让 AI 编程 Agent 能通过稳定、可发现的接口查看项目、修改场景、运行游戏、注入输入，并直接读取编辑器和 Player 的实际渲染结果。
 
-装上之后，编辑器进程里会起一个本机服务，默认地址是 `http://127.0.0.1:9713/mcp`。Agent 可以看当前项目、改场景、进 Play Mode，还能把游戏真正渲染出来的画面抓回来。
+[English](README.md) · [Infernux 引擎](https://github.com/ChenlizheMe/Infernux) · [插件模板](https://github.com/ChenlizheMe/infernux_plugin_template) · [发布制品](https://github.com/ChenlizheMe/infernux_mcp/releases)
 
-![Infernux MCP](package/plugin_pages/media/system_overview.png)
+![Infernux MCP 如何连接 AI Agent 与编辑器](package/plugin_pages/media/system_overview.png)
 
-新项目会默认带着这个包。不需要的话，在「插件」窗口里关掉或卸掉就行。
+## Agent 可以做什么
 
-## 能做什么
+- 查看和修改场景物体、组件、材质、粒子与相机
+- 进入播放模式，执行播放、暂停、单帧和停止
+- 通过引擎事件队列发送键盘与指针输入
+- 获取 Scene、Game 和独立 Player 真正渲染出的画面
+- 构建并控制 Debug Player
+- 先发现 operation schema，再按准确参数操作编辑器
 
-- 查、改场景对象、组件、材质、粒子、相机
-- 播放、暂停、单帧、停止
-- 往游戏里灌键盘和鼠标
-- 截 Scene / Game 画面（是引擎画面，不是桌面截图）
-- 打出一个独立 Debug Player，并跟它通信
+| 包标识 | 版本 | 适配引擎 | 默认地址 |
+| --- | --- | --- | --- |
+| `infernux/mcp` | 0.1.1 | Infernux 0.4.x | `http://127.0.0.1:9713/mcp` |
 
-## 怎么连
+## 安装与连接
 
-MCP 客户端指到 `http://127.0.0.1:9713/mcp`。只认本机。换端口的话，启动编辑器前设 `INFERNUX_MCP_PORT`。
+Infernux 新项目默认带有这个官方插件。已有项目可以在编辑器的**插件**窗口中安装或更新；不需要 Agent 操作时，也可以在同一位置禁用或卸载。
 
-## 怎么调
+把支持 MCP 的客户端连接到 `http://127.0.0.1:9713/mcp` 即可。服务只接受本机连接。如需更换端口，请在启动编辑器前设置 `INFERNUX_MCP_PORT`。
 
-先调用 `host_session_status`。用 `limit: 200` 调一次 `operation_schema_list`，缓存这份精简目录；只有返回的 revision 变化时才重新读取。接着搜索 operation，只在需要时读取完整参数说明，然后执行：
+Agent 应先调用 `host_session_status`，再读取 `operation_schema_list`。通过 `operation_schema_search` 找到所需能力、读取准确 schema，最后用 `operation_command_execute` 执行。构建等耗时任务使用 `operation_job_submit`，一组顺序明确的操作可以交给 `operation_batch_execute`，减少通信往返。
 
 ```json
 {
@@ -31,22 +34,10 @@ MCP 客户端指到 `http://127.0.0.1:9713/mcp`。只认本机。换端口的话
 }
 ```
 
-```json
-{
-  "tool": "operation_command_execute",
-  "arguments": {
-    "operation": "infernux.scene.object.create",
-    "arguments": {"kind": "cube", "name": "AgentCube"}
-  }
-}
-```
+## 仓库说明
 
-别猜字段名。改不熟的组件前先问 `infernux.scene.component.schema`。打 Player 这种慢活用 `operation_job_submit`。
+可安装插件位于 `package/`。仓库根目录的说明、独立打包器和 GitHub Actions 只负责开发与发布，不会进入插件包。推送 `v<version>` 标签后，CI 会构建、校验并发布 `.inxpkg` 与 release manifest。
 
-已经知道的一组有序操作应交给 `operation_batch_execute`，不要让每一步都产生一次通信往返。如果 operation 返回 `mode_required`，错误详情会附上 Agent 可直接执行的完整参数数组。由 Supervisor 管理的编辑器会自动重启并校验新模式；普通编辑器在项目权限配置改变后需要重新打开。
+## 许可证
 
-所有自动化输入都进入引擎自己的事件队列；需要让游戏逻辑跨多个模拟帧采样按键时，使用 `infernux.input.key.hold`。画面验证读取 Scene、Game 或 Player 的渲染目标。
-
-## 要求
-
-Infernux `0.4.x`（`>=0.4,<0.5`），与 `package/inx_package.json` 一致。
+[MIT](LICENSE)。

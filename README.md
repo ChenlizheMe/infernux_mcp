@@ -1,28 +1,31 @@
 # Infernux MCP
 
-Let an MCP-compatible AI agent drive the Infernux Editor.
+The official Model Context Protocol plugin for [Infernux](https://github.com/ChenlizheMe/Infernux). It gives AI coding agents a structured way to inspect an Infernux project, edit scenes and components, run the game, send input, and validate rendered results inside the Editor.
 
-The package starts a local server inside the Editor at `http://127.0.0.1:9713/mcp`. From there an agent can inspect the project, edit the scene, enter Play Mode, and capture what the game actually rendered.
+[简体中文](README.zh-CN.md) · [Infernux Engine](https://github.com/ChenlizheMe/Infernux) · [Plugin Template](https://github.com/ChenlizheMe/infernux_plugin_template) · [Releases](https://github.com/ChenlizheMe/infernux_mcp/releases)
 
-![Infernux MCP](package/plugin_pages/media/system_overview.png)
+![How Infernux MCP connects an AI agent to the Editor](package/plugin_pages/media/system_overview.png)
 
-New projects include this package. Turn it off or uninstall it from the Plugins window if you do not want it.
-
-## Features
+## What an agent can do
 
 - Inspect and edit scene objects, components, materials, particles, and cameras
-- Play, pause, step, and stop
-- Inject keyboard and pointer input
-- Capture Scene / Game views (engine frames, not desktop screenshots)
-- Build and talk to a standalone Debug Player
+- Enter Play Mode, pause, step, and stop
+- Send keyboard and pointer input through the engine event queue
+- Capture the actual Scene, Game, and Player render targets
+- Build and control a standalone Debug Player
+- Discover operation schemas instead of guessing editor APIs
 
-## Setup
+| Package | Version | Compatible engine | Endpoint |
+| --- | --- | --- | --- |
+| `infernux/mcp` | 0.1.1 | Infernux 0.4.x | `http://127.0.0.1:9713/mcp` |
 
-Point your MCP client at `http://127.0.0.1:9713/mcp`. Only localhost is accepted. Change the port with `INFERNUX_MCP_PORT` before launching the Editor.
+## Install and connect
 
-## Talking to it
+New Infernux projects include this official plugin by default. Existing projects can install or update it from the Editor's **Plugins** window. You can disable or uninstall it there when agent access is not needed.
 
-Begin with `host_session_status`. Fetch `operation_schema_list` once with `limit: 200`, cache the compact catalog, and refresh it only when the reported revision changes. Search for an operation, read its full schema only when needed, then execute:
+Point an MCP-compatible client to `http://127.0.0.1:9713/mcp`. The server accepts localhost connections only. Set `INFERNUX_MCP_PORT` before starting the Editor to choose another port.
+
+Start a session with `host_session_status`, then read `operation_schema_list`. Search the catalog with `operation_schema_search`, inspect the exact schema you need, and call it through `operation_command_execute`. Long-running builds belong in `operation_job_submit`; known ordered calls can be grouped with `operation_batch_execute`.
 
 ```json
 {
@@ -31,22 +34,10 @@ Begin with `host_session_status`. Fetch `operation_schema_list` once with `limit
 }
 ```
 
-```json
-{
-  "tool": "operation_command_execute",
-  "arguments": {
-    "operation": "infernux.scene.object.create",
-    "arguments": {"kind": "cube", "name": "AgentCube"}
-  }
-}
-```
+## Repository guide
 
-Do not invent field names. Ask `infernux.scene.component.schema` first. Slow work such as a Player build should go through `operation_job_submit`.
+The installable plugin lives in `package/`. The root README, standalone packer, and GitHub Actions workflow describe and release the repository but do not enter the package. Push a `v<version>` tag to build, verify, and publish the `.inxpkg` plus its release manifest.
 
-Group known, ordered calls with `operation_batch_execute` instead of paying for one transport round trip per operation. If an operation returns `mode_required`, its error details include the exact argument vector the agent should run to switch modes. A Supervisor-managed Editor is restarted and verified automatically; an unmanaged Editor must be reopened after its project policy is changed.
+## License
 
-Automation input goes through the engine event queue. Use `infernux.input.key.hold` when gameplay must sample a key across multiple simulation frames. Visual validation reads Scene, Game, or Player render targets.
-
-## Requirements
-
-Infernux `0.4.x` (`>=0.4,<0.5`), matching `package/inx_package.json`.
+[MIT](LICENSE).
