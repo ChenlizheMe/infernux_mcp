@@ -8,7 +8,7 @@ The official Model Context Protocol plugin for [Infernux](https://github.com/Che
 
 ## What an agent can do
 
-- Inspect and edit scene objects, components, materials, particles, and cameras
+- Inspect and edit scene objects, components, DataAssets, materials, particles, and cameras
 - Enter Play Mode, pause, step, and stop
 - Send keyboard and pointer input through the engine event queue
 - Capture the actual Scene, Game, and Player render targets

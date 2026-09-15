@@ -12,7 +12,6 @@ from Infernux.host import (
 )
 
 from infernux_mcp import session
-from infernux_mcp.asset_operations import build_asset_operations
 from infernux_mcp.camera_operations import build_camera_operations
 from infernux_mcp.capture_operations import build_capture_operations
 from infernux_mcp.console_operations import build_console_operations
@@ -23,7 +22,6 @@ from infernux_mcp.operation_support import OWNER, on_editor, operation
 from infernux_mcp.particle_operations import build_particle_operations
 from infernux_mcp.player_operations import build_player_operations
 from infernux_mcp.runtime_operations import build_runtime_operations
-from infernux_mcp.scene_operations import build_scene_operations
 from infernux_mcp.ui_operations import build_ui_operations
 
 
@@ -34,7 +32,7 @@ def build_operations(project_path: str) -> tuple[Operation, ...]:
         operation(
             "infernux.project.info",
             OperationKind.QUERY,
-            "Read the active project, scene document, and play state.",
+            "Read the project, scene document state, and last scene-load outcome. After scene.open/reload is scheduled, check active_scene.last_load until loaded or failed; failures include the parser diagnostic.",
             _project_info_handler(project_path),
             capability="project.read",
             tags=("project", "scene", "status"),
@@ -105,8 +103,6 @@ def build_operations(project_path: str) -> tuple[Operation, ...]:
     )
     return (
         session_operations
-        + build_scene_operations()
-        + build_asset_operations(project_path)
         + build_material_operations()
         + build_particle_operations()
         + build_camera_operations()

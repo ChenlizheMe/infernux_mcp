@@ -13,6 +13,25 @@ def build_runtime_operations() -> tuple[Operation, ...]:
     transition_input = {"timeout_seconds": {"type": "number", "default": 10.0}}
     return (
         operation(
+            "infernux.runtime.performance.begin",
+            OperationKind.COMMAND,
+            "Reset and begin the bounded native frame timing window; does not change Play state.",
+            lambda: on_editor("infernux.runtime.performance.begin", lambda: {
+                "first_frame": EditorAutomationHost.instance().begin_renderer_performance_window()}),
+            capability="runtime.write",
+            side_effects=("Resets previously collected frame timing samples.",),
+            tags=("runtime", "performance"),
+        ),
+        operation(
+            "infernux.runtime.performance.get",
+            OperationKind.QUERY,
+            "Read native frame timing percentiles without GPU readback or resetting the window.",
+            lambda: on_editor("infernux.runtime.performance.get",
+                              EditorAutomationHost.instance().renderer_performance_window),
+            capability="runtime.read",
+            tags=("runtime", "performance"),
+        ),
+        operation(
             "infernux.runtime.status",
             OperationKind.QUERY,
             "Read Play Mode state, timing, pause state, and time scale.",
@@ -119,13 +138,19 @@ def _transition(
     timeout = max(0.0, min(float(timeout_seconds), 60.0))
     deadline = time.monotonic() + timeout
     runtime = dict(result.get("runtime") or {})
-    while str(runtime.get("state", "")) != expected_state and time.monotonic() < deadline:
+    def completed(value: dict[str, object]) -> bool:
+        return (
+            str(value.get("state", "")) == expected_state
+            and not bool(value.get("transition_pending", False))
+        )
+
+    while not completed(runtime) and time.monotonic() < deadline:
         time.sleep(0.02)
         runtime = on_editor(
             operation_id,
             lambda: EditorAutomationHost.instance().runtime_status(),
         )
-    complete = str(runtime.get("state", "")) == expected_state
+    complete = completed(runtime)
     if require_truthy and not complete:
         raise OperationError(
             "runtime.transition_timeout",

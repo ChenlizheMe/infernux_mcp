@@ -46,6 +46,9 @@ def register_gateways(
         _config = dict(config or {})
         registry = OperationRegistry.instance()
         registry.unregister_owner(OWNER)
+        from Infernux.host import install_editor_operations
+
+        install_editor_operations(project_path, registry)
         from infernux_mcp import capabilities
         if config is None:
             _config = capabilities.configure(project_path, write_default=False)
@@ -120,7 +123,8 @@ def adapter_status() -> dict[str, object]:
         "owner": OWNER,
         "active": registry is not None,
         "revision": 0 if registry is None else registry.revision,
-        "operation_count": len(_operation_ids),
+        "operation_count": 0 if registry is None else len(registry.list()),
+        "owned_operation_count": len(_operation_ids),
         "gateway_count": len(_gateway_names),
         "gateway_tools": sorted(_gateway_names),
         "started_at": _started_at,
@@ -323,7 +327,8 @@ def _register_gateway_tools(mcp, project_path: str) -> None:
                     "blocked_operation_count": len(blocked),
                     "config_path": capability_config.config_path(),
                     "operation_revision": registry.revision,
-                    "operation_count": len(_operation_ids),
+                    "operation_count": len(documents),
+                    "owned_operation_count": len(_operation_ids),
                     "gateway_count": len(_gateway_names),
                 }
             )
@@ -367,7 +372,7 @@ def _compact_schema(value: Mapping[str, object]) -> dict[str, object]:
         key: value[key]
         for key in (
             "id", "version", "kind", "summary", "thread", "side_effects",
-            "reversible", "capabilities", "cost", "tags",
+            "reversible", "capabilities", "cost", "tags", "availability", "phase",
         )
         if key in value
     }

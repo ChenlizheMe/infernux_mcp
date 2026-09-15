@@ -21,15 +21,16 @@ def build_capture_operations() -> tuple[Operation, ...]:
         operation(
             "infernux.capture.request",
             OperationKind.COMMAND,
-            "Request an asynchronous engine render-target PNG for human review.",
+            "Request an asynchronous Scene, Game, complete Editor, or Camera target_texture PNG for human review.",
             _request_capture,
             capability="capture.write",
             input_properties={
-                "source": {"type": "string", "default": "game"},
+                "source": {"type": "string", "enum": ["scene", "game", "editor", "camera"], "default": "game"},
                 "file_name": {"type": "string", "default": ""},
+                "camera_component_id": {"type": "integer", "minimum": 0, "default": 0},
             },
             side_effects=("Queues GPU readback and writes a session review artifact.",),
-            tags=("capture", "render-target", "scene", "game", "png"),
+            tags=("capture", "render-target", "scene", "game", "editor", "camera", "png"),
         ),
         operation(
             "infernux.capture.status",
@@ -90,11 +91,13 @@ def _debug_session():
     return active
 
 
-def _request_capture(source: str = "game", file_name: str = ""):
+def _request_capture(source: str = "game", file_name: str = "", camera_component_id: int = 0):
     active = _debug_session()
     source_name = str(source).strip().casefold()
-    if source_name not in {"scene", "game"}:
-        raise OperationError("operation.invalid_arguments", "source must be scene or game")
+    if source_name not in {"scene", "game", "editor", "camera"}:
+        raise OperationError("operation.invalid_arguments", "source must be scene, game, editor, or camera")
+    if (source_name == "camera") != (camera_component_id > 0):
+        raise OperationError("operation.invalid_arguments", "camera capture requires camera_component_id; other sources do not use it")
     requested = os.path.basename(str(file_name).strip())
     if requested:
         stem, extension = os.path.splitext(requested)
@@ -108,7 +111,7 @@ def _request_capture(source: str = "game", file_name: str = ""):
     output = os.path.abspath(os.path.join(review, requested))
     capture_id = on_editor(
         "infernux.capture.request",
-        lambda: EditorAutomationHost.instance().request_capture(source_name, output),
+        lambda: EditorAutomationHost.instance().request_capture(source_name, output, camera_component_id),
     )
     return {
         "capture_id": int(capture_id),

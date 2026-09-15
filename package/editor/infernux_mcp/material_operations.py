@@ -59,6 +59,73 @@ def build_material_operations() -> tuple[Operation, ...]:
             reversible=True,
             tags=("material", "renderer", "slot", "scene", "authoring"),
         ),
+        operation(
+            "infernux.renderer.parameter.get",
+            OperationKind.QUERY,
+            "Read one effective per-renderer material parameter override.",
+            _get_renderer_parameter,
+            capability="material.read",
+            input_properties={
+                "object_id": {"type": "integer"},
+                "component_id": {"type": "integer"},
+                "name": {"type": "string"},
+                "slot": {"type": "integer", "default": 0},
+                "persistent_only": {"type": "boolean", "default": False},
+            },
+            required=("object_id", "component_id", "name"),
+            tags=("renderer", "material", "parameter", "inspect"),
+        ),
+        operation(
+            "infernux.renderer.parameter.set",
+            OperationKind.COMMAND,
+            "Set one reflected material parameter on a renderer without mutating its shared material.",
+            _set_renderer_parameter,
+            capability="material.write",
+            input_properties={
+                "object_id": {"type": "integer"},
+                "component_id": {"type": "integer"},
+                "name": {"type": "string"},
+                "value": {},
+                "slot": {"type": "integer", "default": 0},
+                "persistent": {"type": "boolean", "default": False},
+            },
+            required=("object_id", "component_id", "name", "value"),
+            side_effects=("Publishes a renderer-local material parameter override.",),
+            tags=("renderer", "material", "parameter", "override"),
+        ),
+        operation(
+            "infernux.renderer.parameter.remove",
+            OperationKind.COMMAND,
+            "Remove one renderer-local material parameter override.",
+            _remove_renderer_parameter,
+            capability="material.write",
+            input_properties={
+                "object_id": {"type": "integer"},
+                "component_id": {"type": "integer"},
+                "name": {"type": "string"},
+                "slot": {"type": "integer", "default": 0},
+                "persistent": {"type": "boolean", "default": False},
+            },
+            required=("object_id", "component_id", "name"),
+            side_effects=("Removes a renderer-local material parameter override.",),
+            tags=("renderer", "material", "parameter", "override", "remove"),
+        ),
+        operation(
+            "infernux.renderer.parameter.clear",
+            OperationKind.COMMAND,
+            "Clear one renderer material slot's parameter override layer.",
+            _clear_renderer_parameters,
+            capability="material.write",
+            input_properties={
+                "object_id": {"type": "integer"},
+                "component_id": {"type": "integer"},
+                "slot": {"type": "integer", "default": 0},
+                "persistent": {"type": "boolean", "default": False},
+            },
+            required=("object_id", "component_id"),
+            side_effects=("Clears a renderer-local material parameter override layer.",),
+            tags=("renderer", "material", "parameter", "override", "clear"),
+        ),
     )
 
 
@@ -125,6 +192,129 @@ def _assign_material_slot(
         }
 
     return on_editor("infernux.material.slot.assign", edit)
+
+
+def _renderer(object_id: int, component_id: int):
+    _, renderer = component(object_id, component_id)
+    required = ("get_parameter", "set_parameter", "remove_parameter", "clear_parameters")
+    if not all(callable(getattr(renderer, name, None)) for name in required):
+        raise OperationError(
+            "material.renderer_required",
+            "Target component does not support renderer parameter overrides.",
+        )
+    return renderer
+
+
+def _parameter_value(value):
+    if value is None or isinstance(value, (bool, int, float, str)):
+        return value
+    if isinstance(value, (list, tuple)):
+        return [_parameter_value(item) for item in value]
+    try:
+        return [_parameter_value(item) for item in value]
+    except TypeError:
+        return str(value)
+
+
+def _get_renderer_parameter(
+    object_id: int,
+    component_id: int,
+    name: str,
+    slot: int = 0,
+    persistent_only: bool = False,
+) -> dict[str, object]:
+    def read():
+        renderer = _renderer(object_id, component_id)
+        value = renderer.get_parameter(
+            str(name),
+            material_slot=int(slot),
+            persistent_only=bool(persistent_only),
+        )
+        return {
+            "object_id": int(object_id),
+            "component_id": int(component_id),
+            "slot": int(slot),
+            "name": str(name),
+            "value": _parameter_value(value),
+            "inherited": value is None,
+        }
+
+    return on_editor("infernux.renderer.parameter.get", read)
+
+
+def _set_renderer_parameter(
+    object_id: int,
+    component_id: int,
+    name: str,
+    value,
+    slot: int = 0,
+    persistent: bool = False,
+) -> dict[str, object]:
+    def edit():
+        renderer = _renderer(object_id, component_id)
+        renderer.set_parameter(
+            str(name), value, material_slot=int(slot), persistent=bool(persistent), owner="mcp"
+        )
+        return {
+            "object_id": int(object_id),
+            "component_id": int(component_id),
+            "slot": int(slot),
+            "name": str(name),
+            "value": _parameter_value(
+                renderer.get_parameter(str(name), material_slot=int(slot))
+            ),
+            "persistent": bool(persistent),
+        }
+
+    return on_editor("infernux.renderer.parameter.set", edit)
+
+
+def _remove_renderer_parameter(
+    object_id: int,
+    component_id: int,
+    name: str,
+    slot: int = 0,
+    persistent: bool = False,
+) -> dict[str, object]:
+    def edit():
+        renderer = _renderer(object_id, component_id)
+        removed = bool(
+            renderer.remove_parameter(
+                str(name), material_slot=int(slot), persistent=bool(persistent), owner="mcp"
+            )
+        )
+        return {
+            "object_id": int(object_id),
+            "component_id": int(component_id),
+            "slot": int(slot),
+            "name": str(name),
+            "removed": removed,
+            "persistent": bool(persistent),
+        }
+
+    return on_editor("infernux.renderer.parameter.remove", edit)
+
+
+def _clear_renderer_parameters(
+    object_id: int,
+    component_id: int,
+    slot: int = 0,
+    persistent: bool = False,
+) -> dict[str, object]:
+    def edit():
+        renderer = _renderer(object_id, component_id)
+        renderer.clear_parameters(
+            material_slot=int(slot), persistent=bool(persistent), owner="mcp"
+        )
+        return {
+            "object_id": int(object_id),
+            "component_id": int(component_id),
+            "slot": int(slot),
+            "persistent": bool(persistent),
+            "cleared": True,
+        }
+
+    return on_editor("infernux.renderer.parameter.clear", edit)
 
 
 __all__ = ["build_material_operations"]

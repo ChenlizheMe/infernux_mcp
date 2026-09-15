@@ -79,7 +79,7 @@ def _require_validation() -> None:
 def _snapshot(label: str = "", kind: str = "", window: str = "", semantic_id: str = "", visible_only: bool = True, limit: int = 500):
     _require_validation()
     host = EditorAutomationHost.instance()
-    on_editor("infernux.ui.semantic.enable", lambda: host.semantic_capture_enabled(True))
+    # RequestSnapshot owns one frame; continuous capture is an explicit setting.
     request = on_editor("infernux.ui.semantic.request", host.request_semantic_snapshot)
     deadline = time.monotonic() + 0.5
     while True:
@@ -113,13 +113,20 @@ def _snapshot(label: str = "", kind: str = "", window: str = "", semantic_id: st
         targets.append(target)
         if len(targets) >= max(1, min(int(limit), 2000)):
             break
-    return {
+    result = {
         "request_sequence": int(request or 0),
         "frame": int(raw.get("frame", 0) or 0),
         "capture_enabled": bool(raw.get("capture_enabled")),
+        "mouse": raw["mouse"],
         "targets": targets,
         "returned": len(targets),
     }
+    # The MCP plug-in can update independently of an older engine. Preserve
+    # its native window-coordinate targets, but never invent a pixel mapping
+    # when that native version does not publish coordinate provenance.
+    if "coordinates" in raw:
+        result["coordinates"] = dict(raw["coordinates"])
+    return result
 
 
 def _status():
