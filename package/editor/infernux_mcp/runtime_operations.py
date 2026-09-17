@@ -16,9 +16,12 @@ def build_runtime_operations() -> tuple[Operation, ...]:
             "infernux.runtime.performance.begin",
             OperationKind.COMMAND,
             "Reset and begin the bounded native frame timing window; does not change Play state.",
-            lambda: on_editor("infernux.runtime.performance.begin", lambda: {
-                "first_frame": EditorAutomationHost.instance().begin_renderer_performance_window()}),
+            lambda sample_count=240: on_editor("infernux.runtime.performance.begin", lambda: {
+                "first_frame": EditorAutomationHost.instance().begin_renderer_performance_window(sample_count)}),
             capability="runtime.write",
+            input_properties={"sample_count": {
+                "type": "integer", "minimum": 1, "maximum": 65536, "default": 240,
+            }},
             side_effects=("Resets previously collected frame timing samples.",),
             tags=("runtime", "performance"),
         ),
