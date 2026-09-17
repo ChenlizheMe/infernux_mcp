@@ -43,6 +43,37 @@ def build_runtime_operations() -> tuple[Operation, ...]:
             tags=("runtime", "play-mode", "status", "time"),
         ),
         operation(
+            "infernux.runtime.compute.statistics",
+            OperationKind.QUERY,
+            "Read cumulative compute transfers, submissions and CPU waits. GPU time is the latest completed submission, not a frame total.",
+            lambda: on_editor("infernux.runtime.compute.statistics",
+                              EditorAutomationHost.instance().compute_statistics),
+            capability="runtime.read",
+            tags=("runtime", "performance", "compute"),
+        ),
+        operation(
+            "infernux.runtime.compute.reset_statistics",
+            OperationKind.COMMAND,
+            "Return the current compute counters and reset their accumulation; does not submit pending work or change Play state.",
+            lambda: on_editor("infernux.runtime.compute.reset_statistics", lambda:
+                              EditorAutomationHost.instance().compute_statistics(reset=True)),
+            capability="runtime.write",
+            side_effects=("Resets cumulative compute counters, not GPU timestamp history.",),
+            tags=("runtime", "performance", "compute"),
+        ),
+        operation(
+            "infernux.runtime.compute.profiling",
+            OperationKind.COMMAND,
+            "Explicitly enable or disable native GPU submission timestamps; changing query resources waits for in-flight compute.",
+            lambda enabled: on_editor("infernux.runtime.compute.profiling", lambda:
+                                     EditorAutomationHost.instance().set_compute_profiling(enabled)),
+            capability="runtime.write",
+            input_properties={"enabled": {"type": "boolean"}},
+            required=("enabled",),
+            side_effects=("May wait for in-flight compute while changing native timestamp resources.",),
+            tags=("runtime", "performance", "compute"),
+        ),
+        operation(
             "infernux.runtime.play",
             OperationKind.COMMAND,
             "Enter Play Mode through the editor state machine.",

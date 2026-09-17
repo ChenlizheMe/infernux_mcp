@@ -34,6 +34,16 @@ Start a session with `host_session_status`, then read `operation_schema_list`. S
 }
 ```
 
+## Compute diagnostics (041)
+
+Search the operation catalog for `runtime.compute`. Read `statistics` for the
+engine's cumulative upload/readback bytes, dispatches, submissions and CPU waits;
+`reset_statistics` starts a new measurement interval. Enable `profiling` explicitly
+to collect native GPU timestamps, and disable it after measuring. Toggling it may
+wait for in-flight compute. GPU time describes the latest completed submission,
+not an entire frame; use the separate `runtime.performance` window for frame
+percentiles. These operations require the matching 041 engine host.
+
 ## Repository guide
 
 The installable plugin lives in `package/`. The root README, standalone packer, and GitHub Actions workflow describe and release the repository but do not enter the package. Push a `v<version>` tag to build, verify, and publish the `.inxpkg` plus its release manifest.
