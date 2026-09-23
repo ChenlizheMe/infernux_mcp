@@ -508,7 +508,7 @@ class SupervisorSession:
         env["_INFERNUX_PLAYER_DATA_ROOT"] = data_root
         env["_INFERNUX_PLAYER_MODULE_ROOT"] = os.path.join(data_root, "RuntimeModules")
         if self._player_start_scene:
-            env["_INFERNUX_PLAYER_START_SCENE"] = self._player_start_scene
+            env["_INFERNUX_PLAYER_START_SCENE_GUID"] = self._player_start_scene
         try:
             self._player_process = subprocess.Popen(
                 [self._player_executable],

@@ -109,6 +109,11 @@ def _request_capture(source: str = "game", file_name: str = "", camera_component
     review = os.path.join(active.artifact_root, "review")
     os.makedirs(review, exist_ok=True)
     output = os.path.abspath(os.path.join(review, requested))
+    # One artifact URI represents exactly one request. Remove an older file at
+    # that URI before queueing so a failed or timed-out capture cannot be
+    # mistaken for a newly completed frame.
+    if os.path.isfile(output):
+        os.remove(output)
     capture_id = on_editor(
         "infernux.capture.request",
         lambda: EditorAutomationHost.instance().request_capture(source_name, output, camera_component_id),
@@ -141,7 +146,7 @@ def _capture_status(capture_id: int):
             "terminal": str(value.get("status", "")) in _TERMINAL,
         }
     )
-    if value["terminal"] and output and os.path.isfile(output):
+    if str(value.get("status", "")) == "completed" and output and os.path.isfile(output):
         value["byte_size"] = os.path.getsize(output)
     return value
 

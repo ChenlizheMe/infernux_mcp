@@ -83,25 +83,29 @@ def _player_data_root(runtime_executable: str) -> str:
 
 
 def _resolve_player_start_scene(start_scene: str, project_root: str, manifest: dict[str, Any]) -> str:
-    """Return a BuildManifest-whitelisted relative scene path for Debug validation."""
+    """Resolve an authoring scene request to its BuildManifest GUID."""
     requested = str(start_scene or "").strip()
     if not requested:
         return ""
 
+    scene_guids = manifest.get("scene_guids", []) or []
+    if requested in scene_guids:
+        return requested
     root = resolved_path(project_root)
-    candidate = resolved_path(requested if os.path.isabs(requested) else os.path.join(root, requested))
-    if not is_path_within(candidate, root):
-        raise ValueError("Player validation start_scene must stay inside the project root.")
-    if os.path.splitext(candidate)[1].lower() != ".scene":
-        raise ValueError("Player validation start_scene must name a .scene file.")
-
-    for listed in manifest.get("scenes", []) or []:
-        scene = str(listed or "").strip()
-        if not scene:
+    candidate = resolved_path(
+        requested if os.path.isabs(requested) else os.path.join(root, requested)
+    )
+    index = _read_json_object(os.path.join(root, "Library", "AssetIndex.json"))
+    for entry in index.get("entries", []) or []:
+        if not isinstance(entry, dict):
             continue
-        manifest_candidate = resolved_path(scene if os.path.isabs(scene) else os.path.join(root, scene))
-        if same_path(manifest_candidate, candidate):
-            return relative_path(manifest_candidate, root)
+        guid = str(entry.get("guid", ""))
+        source = str(entry.get("normalized_path", ""))
+        source_path = (
+            source if os.path.isabs(source) else os.path.join(root, source)
+        )
+        if guid in scene_guids and source and same_path(source_path, candidate):
+            return guid
     raise ValueError("Player validation start_scene must be declared by the current Debug Player BuildManifest.")
 
 

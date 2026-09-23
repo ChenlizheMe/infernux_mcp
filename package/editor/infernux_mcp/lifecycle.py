@@ -15,6 +15,12 @@ class InfernuxMCPPreload(InxPreload):
         self._stop_server = None
 
     def preload(self, context: PreloadContext) -> None:
+        # Project Cook runs the plugin manager in runtime mode, even though it
+        # imports package declarations to publish authored types.  Only that
+        # explicit runtime boundary suppresses the editor service.  Do not
+        # infer editor-ness from Application here: headless/editor harnesses
+        # legitimately preload the MCP service before a native Application
+        # object exists.
         if context.runtime:
             return
 
@@ -25,9 +31,9 @@ class InfernuxMCPPreload(InxPreload):
         # Resolve the plugin entry points while PluginManager still owns the
         # temporary import path.  Deferring this import to the worker races the
         # context exit and can resolve a different checkout of the same plugin.
-        from infernux_mcp.server import start_server, stop_server
+        from infernux_mcp.server import request_stop_server, start_server
 
-        self._stop_server = stop_server
+        self._stop_server = request_stop_server
 
         # The FastMCP/starlette/uvicorn import chain plus the server readiness
         # wait is the single heaviest piece of editor plugin preload, and the

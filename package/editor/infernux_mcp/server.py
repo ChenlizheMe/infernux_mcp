@@ -6,192 +6,316 @@ import json
 import os
 import threading
 import time
+from dataclasses import dataclass, field
 from typing import Optional
 
 from Infernux.debug import Debug
 from Infernux.engine.path_utils import resolved_path
+from Infernux.runtime_services import (
+    get_runtime_service,
+    install_runtime_service,
+    remove_runtime_service,
+)
 
 HOST = "127.0.0.1"
 PORT = 9713
 PATH = "/mcp"
 HEALTH_PATH = "/health"
 SERVER_NAME = "Infernux Editor"
+_RUNTIME_SERVICE_NAME = "infernux.editor.mcp.http"
 
-_server_thread: Optional[threading.Thread] = None
-_server = None
-_uvicorn_server = None
-_server_error: BaseException | None = None
-_project_path = ""
-_active_host = HOST
-_active_port = PORT
+
+@dataclass
+class _ServerState:
+    project_path: str
+    host: str
+    port: int
+    mcp: object
+    transport: object
+    adapter_shutdown: object
+    thread: Optional[threading.Thread] = None
+    error: BaseException | None = None
+    stop_requested: threading.Event = field(default_factory=threading.Event)
+    stopped: threading.Event = field(default_factory=threading.Event)
+    reaper_started: threading.Event = field(default_factory=threading.Event)
+    cleanup_lock: threading.Lock = field(default_factory=threading.Lock)
+
+    def matches(self, project_path: str, host: str, port: int) -> bool:
+        return (
+            resolved_path(project_path) == resolved_path(self.project_path)
+            and str(host) == self.host
+            and int(port) == self.port
+        )
+
+    def is_alive(self) -> bool:
+        thread = self.thread
+        return thread is not None and thread.is_alive()
+
+
+_lifecycle_lock = threading.RLock()
+
+
+def _active_state() -> _ServerState | None:
+    state = get_runtime_service(_RUNTIME_SERVICE_NAME)
+    # Do not use isinstance here. The service intentionally survives unloading
+    # and re-importing this plugin module, so its class may belong to the prior
+    # module generation.
+    if state is None:
+        return None
+    required = (
+        "project_path",
+        "host",
+        "port",
+        "transport",
+        "adapter_shutdown",
+        "thread",
+        "stop_requested",
+        "stopped",
+        "reaper_started",
+        "cleanup_lock",
+    )
+    if not all(hasattr(state, name) for name in required):
+        raise RuntimeError("Infernux MCP runtime service has an invalid owner")
+    return state
 
 
 def start_server(project_path: str, *, host: str = HOST, port: int = PORT) -> bool:
     """Start the embedded HTTP MCP server if it is not already running."""
-    global _server_thread, _server, _uvicorn_server, _server_error
-    global _project_path, _active_host, _active_port
+    with _lifecycle_lock:
+        existing = _active_state()
+        if existing is not None:
+            if existing.stop_requested.is_set():
+                if not existing.stopped.wait(timeout=10.0):
+                    raise RuntimeError(
+                        "Previous Infernux MCP transport did not retire within 10 seconds"
+                    )
+                existing = _active_state()
+                if existing is not None:
+                    raise RuntimeError(
+                        "Retired Infernux MCP transport still owns the runtime service"
+                    )
+        if existing is not None:
+            if existing.is_alive() and existing.matches(
+                project_path, host, int(port)
+            ):
+                return True
+            if existing.is_alive():
+                raise RuntimeError(
+                    "Infernux MCP is already serving a different project or endpoint"
+                )
+            # A terminated owner must be fully removed before another transport
+            # is published. Never start a second server over stale global state.
+            _stop_state(existing)
 
-    if _server_thread is not None and _server_thread.is_alive():
-        if (
-            resolved_path(project_path) == resolved_path(_project_path)
-            and str(host) == _active_host
-            and int(port) == _active_port
-        ):
-            return True
-        raise RuntimeError(
-            "Infernux MCP is already serving a different project or endpoint"
-        )
-
-    try:
-        FastMCP = _import_fastmcp()
-    except Exception as exc:
-        Debug.log_warning(
-            "Infernux MCP disabled: install PyPI packages 'mcp' and 'fastmcp' to enable "
-            f"the embedded HTTP server ({exc})."
-        )
-        return False
-
-    _project_path = project_path
-    _active_host = str(host)
-    _active_port = int(port)
-    _server_error = None
-    from infernux_mcp.capabilities import configure, feature_enabled, is_enabled
-    capability_config = configure(project_path, write_default=True)
-    if not is_enabled():
-        Debug.log_internal("Infernux MCP server disabled by ProjectSettings/mcp_capabilities.json")
-        return False
-    from infernux_mcp.session import configure as configure_session
-    session_state = configure_session(project_path, capability_config)
-    Debug.log_internal(
-        "Infernux MCP session configured: "
-        f"mode={session_state.mode}, build_profile={session_state.build_profile}, "
-        f"recording={session_state.recording_enabled}"
-    )
-    if feature_enabled("session_call_log"):
         try:
-            from infernux_mcp.trace import start_session_log
-            info = start_session_log(project_path)
-            Debug.log_internal(f"Infernux MCP session log initialized: {info.get('path')}")
+            FastMCP = _import_fastmcp()
         except Exception as exc:
-            Debug.log_suppressed("infernux_mcp.start_session_log", exc)
-    _server = FastMCP(SERVER_NAME)
+            Debug.log_warning(
+                "Infernux MCP disabled: install PyPI packages 'mcp' and 'fastmcp' to enable "
+                f"the embedded HTTP server ({exc})."
+            )
+            return False
 
-    # Keep health probing outside the streamable HTTP mount. A bare GET on
-    # /mcp is transport negotiation, not a stable readiness endpoint.
-    from starlette.requests import Request
-    from starlette.responses import JSONResponse
-
-    @_server.custom_route(HEALTH_PATH, methods=["GET"])  # type: ignore[attr-defined]
-    async def _mcp_health_probe(request: Request) -> JSONResponse:
-        return JSONResponse(
-            {
-                "name": SERVER_NAME,
-                "message": "MCP endpoint is alive. Use streamable HTTP at /mcp for tool calls.",
-                "transport": "streamable-http",
-                "path": HEALTH_PATH,
-                "url": endpoint_url(host=host, port=int(port)),
-            }
+        from infernux_mcp.capabilities import configure, feature_enabled, is_enabled
+        capability_config = configure(project_path, write_default=True)
+        if not is_enabled():
+            Debug.log_internal(
+                "Infernux MCP server disabled by "
+                "ProjectSettings/mcp_capabilities.json"
+            )
+            return False
+        from infernux_mcp.session import configure as configure_session
+        session_state = configure_session(project_path, capability_config)
+        Debug.log_internal(
+            "Infernux MCP session configured: "
+            f"mode={session_state.mode}, build_profile={session_state.build_profile}, "
+            f"recording={session_state.recording_enabled}"
         )
+        if feature_enabled("session_call_log"):
+            try:
+                from infernux_mcp.trace import start_session_log
+                info = start_session_log(project_path)
+                Debug.log_internal(
+                    f"Infernux MCP session log initialized: {info.get('path')}"
+                )
+            except Exception as exc:
+                Debug.log_suppressed("infernux_mcp.start_session_log", exc)
+        mcp = FastMCP(SERVER_NAME)
 
-    from infernux_mcp.adapter import register_gateways
-    register_gateways(_server, project_path, capability_config)
-    if feature_enabled("discovery_files"):
-        _write_discovery_files(project_path, host=host, port=int(port))
+        # Keep health probing outside the streamable HTTP mount. A bare GET on
+        # /mcp is transport negotiation, not a stable readiness endpoint.
+        from starlette.requests import Request
+        from starlette.responses import JSONResponse
 
-    import uvicorn
+        @mcp.custom_route(HEALTH_PATH, methods=["GET"])  # type: ignore[attr-defined]
+        async def _mcp_health_probe(request: Request) -> JSONResponse:
+            return JSONResponse(
+                {
+                    "name": SERVER_NAME,
+                    "message": (
+                        "MCP endpoint is alive. Use streamable HTTP at /mcp "
+                        "for tool calls."
+                    ),
+                    "transport": "streamable-http",
+                    "path": HEALTH_PATH,
+                    "url": endpoint_url(host=host, port=int(port)),
+                }
+            )
 
-    app = _server.streamable_http_app()
-    _uvicorn_server = uvicorn.Server(
-        uvicorn.Config(
-            app,
+        from infernux_mcp.adapter import register_gateways, shutdown_adapter
+        register_gateways(mcp, project_path, capability_config)
+
+        import uvicorn
+
+        app = mcp.streamable_http_app()
+        transport = uvicorn.Server(
+            uvicorn.Config(
+                app,
+                host=str(host),
+                port=int(port),
+                log_config=None,
+                log_level="warning",
+                # Proactor reports normal client TCP resets as callback errors
+                # on Windows. Scope Selector to this HTTP server's loop; the
+                # Editor's process-wide event loop policy stays untouched.
+                loop="asyncio:SelectorEventLoop" if os.name == "nt" else "auto",
+            )
+        )
+        state = _ServerState(
+            project_path=resolved_path(project_path),
             host=str(host),
             port=int(port),
-            log_config=None,
-            log_level="warning",
+            mcp=mcp,
+            transport=transport,
+            adapter_shutdown=shutdown_adapter,
         )
-    )
 
-    def _run() -> None:
-        global _server_error
-        try:
-            _uvicorn_server.run()
-        except BaseException as exc:
-            _server_error = exc
-            Debug.log_error(f"Infernux MCP HTTP server stopped: {exc}")
+        def _run() -> None:
+            try:
+                # Capture this generation's transport. Reading a module global
+                # here lets hot reload redirect an old thread to a new server.
+                transport.run()
+            except BaseException as exc:
+                state.error = exc
+                if not state.stop_requested.is_set():
+                    Debug.log_error(f"Infernux MCP HTTP server stopped: {exc}")
 
-    _server_thread = threading.Thread(target=_run, name="InfernuxMCPHTTP", daemon=True)
-    _server_thread.start()
-    deadline = time.monotonic() + 5.0
-    while time.monotonic() < deadline:
-        if bool(getattr(_uvicorn_server, "started", False)):
-            Debug.log_internal(
-                f"Infernux MCP HTTP server ready at "
-                f"{endpoint_url(host=host, port=int(port))}"
-            )
-            return True
-        if _server_error is not None or not _server_thread.is_alive():
-            error = _server_error
-            stop_server()
-            raise RuntimeError(
-                "Infernux MCP transport failed before becoming ready"
-            ) from error
-        time.sleep(0.01)
-    try:
-        stop_server()
-    finally:
+        state.thread = threading.Thread(
+            target=_run, name="InfernuxMCPHTTP", daemon=True
+        )
+        install_runtime_service(_RUNTIME_SERVICE_NAME, state)
+        state.thread.start()
+        deadline = time.monotonic() + 5.0
+        while time.monotonic() < deadline:
+            if bool(getattr(transport, "started", False)):
+                if feature_enabled("discovery_files"):
+                    _write_discovery_files(project_path, host=host, port=int(port))
+                Debug.log_internal(
+                    f"Infernux MCP HTTP server ready at "
+                    f"{endpoint_url(host=host, port=int(port))}"
+                )
+                return True
+            if state.error is not None or not state.is_alive():
+                error = state.error
+                _stop_state(state)
+                raise RuntimeError(
+                    "Infernux MCP transport failed before becoming ready"
+                ) from error
+            time.sleep(0.01)
+        _stop_state(state)
         raise RuntimeError("Infernux MCP transport readiness timed out after 5 seconds")
 
 
 def stop_server() -> None:
-    """Best-effort stop hook for editor shutdown."""
-    global _server, _server_thread, _uvicorn_server, _server_error
-    transport = _uvicorn_server
-    if transport is not None:
-        transport.should_exit = True
-    server = _server
-    _server = None
-    for method_name in ("stop", "shutdown", "close"):
-        method = getattr(server, method_name, None)
-        if callable(method):
-            try:
-                method()
-            except Exception as exc:
-                Debug.log_suppressed(f"infernux_mcp.stop_server.{method_name}", exc)
-            break
-    thread = _server_thread
-    if thread is not None and thread is not threading.current_thread():
-        thread.join(timeout=5.0)
-        if thread.is_alive():
-            raise RuntimeError("Infernux MCP transport did not stop within 5 seconds")
-    _server_thread = None
-    _uvicorn_server = None
-    _server_error = None
-    from infernux_mcp.adapter import shutdown_adapter
+    """Stop the process-owned transport and wait until its port is released."""
+    with _lifecycle_lock:
+        state = _active_state()
+        if state is not None:
+            _stop_state(state)
 
-    shutdown_adapter()
-    if _project_path:
-        _remove_discovery_files(_project_path)
+
+def request_stop_server() -> None:
+    """Request transport retirement without waiting on an in-flight request."""
+    with _lifecycle_lock:
+        state = _active_state()
+        if state is not None:
+            _request_stop_state(state)
+
+
+def _stop_state(state: _ServerState) -> None:
+    _request_stop_state(state)
+    if not state.stopped.wait(timeout=10.0):
+        raise RuntimeError("Infernux MCP transport did not stop within 10 seconds")
+
+
+def _request_stop_state(state: _ServerState) -> None:
+    state.stop_requested.set()
+    state.transport.should_exit = True
+    with state.cleanup_lock:
+        if state.reaper_started.is_set():
+            return
+        state.reaper_started.set()
+    threading.Thread(
+        target=_reap_state,
+        args=(state,),
+        name="InfernuxMCPRetire",
+        daemon=True,
+    ).start()
+
+
+def _reap_state(state: _ServerState) -> None:
+    thread = state.thread
+    if thread is not None and thread is not threading.current_thread():
+        thread.join()
+    try:
+        state.adapter_shutdown()
+        if state.project_path:
+            _remove_discovery_files(
+                state.project_path, host=state.host, port=state.port
+            )
+        remove_runtime_service(_RUNTIME_SERVICE_NAME, state)
+    except BaseException as exc:
+        state.error = exc
+        Debug.log_error(f"Infernux MCP transport retirement failed: {exc}")
+    finally:
+        state.stopped.set()
 
 
 def is_running() -> bool:
-    return _server_thread is not None and _server_thread.is_alive()
+    state = _active_state()
+    return state is not None and state.is_alive()
 
 
 def endpoint_url(*, host: str | None = None, port: int | None = None) -> str:
-    resolved_host = _active_host if host is None else host
-    resolved_port = _active_port if port is None else int(port)
+    state = _active_state()
+    resolved_host = (
+        (state.host if state is not None else HOST) if host is None else host
+    )
+    resolved_port = (
+        (state.port if state is not None else PORT) if port is None else int(port)
+    )
     return f"http://{resolved_host}:{resolved_port}{PATH}"
 
 
 def health_url(*, host: str | None = None, port: int | None = None) -> str:
-    resolved_host = _active_host if host is None else host
-    resolved_port = _active_port if port is None else int(port)
+    state = _active_state()
+    resolved_host = (
+        (state.host if state is not None else HOST) if host is None else host
+    )
+    resolved_port = (
+        (state.port if state is not None else PORT) if port is None else int(port)
+    )
     return f"http://{resolved_host}:{resolved_port}{HEALTH_PATH}"
 
 
 def connection_info(*, host: str | None = None, port: int | None = None) -> dict:
-    resolved_host = _active_host if host is None else host
-    resolved_port = _active_port if port is None else int(port)
+    state = _active_state()
+    resolved_host = (
+        (state.host if state is not None else HOST) if host is None else host
+    )
+    resolved_port = (
+        (state.port if state is not None else PORT) if port is None else int(port)
+    )
     url = endpoint_url(host=resolved_host, port=resolved_port)
     return {
         "name": SERVER_NAME,
@@ -306,7 +430,9 @@ def _write_discovery_files(project_path: str, *, host: str, port: int) -> None:
         Debug.log_suppressed("infernux_mcp.write_discovery_files", exc)
 
 
-def _remove_discovery_files(project_path: str) -> None:
+def _remove_discovery_files(
+    project_path: str, *, host: str = HOST, port: int = PORT
+) -> None:
     """Remove only discovery entries owned by this plugin.
 
     Client configuration files may contain unrelated user servers, so unload
@@ -319,7 +445,7 @@ def _remove_discovery_files(project_path: str) -> None:
         return
     try:
         _remove_generic_manifest(os.path.join(root, "mcp.json"))
-        info = connection_info()
+        info = connection_info(host=host, port=port)
         for client_name, client in info["clients"].items():
             if client_name == "generic":
                 continue
