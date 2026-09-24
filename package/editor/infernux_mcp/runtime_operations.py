@@ -35,6 +35,17 @@ def build_runtime_operations() -> tuple[Operation, ...]:
             tags=("runtime", "performance"),
         ),
         operation(
+            "infernux.runtime.gizmos.statistics",
+            OperationKind.QUERY,
+            "Read the last Gizmo callback, geometry, packing, upload, and batch observation.",
+            lambda: on_editor(
+                "infernux.runtime.gizmos.statistics",
+                EditorAutomationHost.instance().gizmo_collection_observation,
+            ),
+            capability="runtime.read",
+            tags=("runtime", "performance", "gizmos"),
+        ),
+        operation(
             "infernux.runtime.status",
             OperationKind.QUERY,
             "Read Play Mode state, timing, pause state, and time scale.",
