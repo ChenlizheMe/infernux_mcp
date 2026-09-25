@@ -31,9 +31,13 @@ class InfernuxMCPPreload(InxPreload):
         # Resolve the plugin entry points while PluginManager still owns the
         # temporary import path.  Deferring this import to the worker races the
         # context exit and can resolve a different checkout of the same plugin.
-        from infernux_mcp.server import request_stop_server, start_server
+        from infernux_mcp.server import start_server, stop_server
 
-        self._stop_server = request_stop_server
+        # PluginManager.uninstall() is synchronous: discovery files and the
+        # runtime service must be gone before it returns.  Keep the matching
+        # synchronous server shutdown here; request_stop_server() only starts
+        # the reaper and would leave mcp.json visible to the caller briefly.
+        self._stop_server = stop_server
 
         # The FastMCP/starlette/uvicorn import chain plus the server readiness
         # wait is the single heaviest piece of editor plugin preload, and the
