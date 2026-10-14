@@ -236,6 +236,7 @@ def _normalized_config(config: dict[str, Any]) -> dict[str, Any]:
         raise ValueError("configuration must be a JSON object")
     source = config
     normalized = copy.deepcopy(DEFAULT_CAPABILITY_CONFIG)
+    normalized["granted_capabilities"] = []
     for key in ("enabled", "write_default_config_on_bootstrap"):
         if key in source:
             _validate_value(key, source[key], bool)
@@ -260,6 +261,10 @@ def _normalized_config(config: dict[str, Any]) -> dict[str, Any]:
         for key, expected in schema.items():
             if key in values:
                 _validate_value(f"{section}.{key}", values[key], expected)
+                if section == "session" and key == "session_id" and values[key]:
+                    from infernux_mcp.checkpoints import normalize_checkpoint_id
+
+                    normalize_checkpoint_id(values[key])
                 if section == "limits":
                     minimum = 1 if key in {"main_thread_timeout_ms", "batch_max_steps"} else 0
                     if values[key] < minimum:

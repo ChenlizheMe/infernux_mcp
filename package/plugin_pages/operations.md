@@ -19,6 +19,21 @@ Player builds and other slow work should go through `operation_job_submit`. Poll
 
 ## Python client
 
+The Editor regenerates its `infernux-editor` entries as standard stdio proxy
+configurations. Valid JSON configurations retain unrelated servers and settings;
+old HTTP entries owned by this plugin are replaced. JSONC, malformed JSON and
+non-object documents are left untouched and reported in the Console; other
+client files still update. Merge the corresponding `connection_info()["clients"]`
+configuration into such a file yourself. Restart the client if it was using an old HTTP
+configuration. An existing stdio proxy reads the current credential on every
+request and remains usable after an Editor restart on the same port.
+
+The server binds only to loopback and requires bearer authorization. The Python
+client reads its credential from the current user's private state directory,
+outside the project. Do not copy credentials into client JSON, Git, process
+arguments or environment variables. Browser Origin requests are rejected;
+`/health` reports readiness only and is not an MCP client endpoint.
+
 Use the same Python environment as the Editor. From this plugin checkout, add
 `package/editor` to `PYTHONPATH` (preserving existing entries). For example in
 Bash: `export PYTHONPATH="$PWD/package/editor${PYTHONPATH:+:$PYTHONPATH}"`.
@@ -59,6 +74,9 @@ The connection is local and uses the existing schemas, capability grants, undo
 paths and session identity. Reusing a connection does not authorize additional
 actions or suppress client/host confirmation requirements. The CLI never replays a failed call or opens a replacement client to retry it. A timeout or disconnect does not prove a command was
 cancelled or rolled back; inspect the scene/job before deciding whether to retry.
+Completed request results are written before disconnecting. A disconnect error
+is reported separately on stderr and causes a nonzero exit status, preserving
+the request result on stdout.
 Long work still belongs in `operation_job_submit` followed by status queries.
 `--timeout` bounds MCP initialization and each request, not the entire session
 or idle time waiting for your next input. Network transport cleanup may add time.

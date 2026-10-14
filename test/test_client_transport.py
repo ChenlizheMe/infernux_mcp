@@ -15,6 +15,8 @@ import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "package" / "editor"))
 from infernux_mcp.client import create_loopback_client
+from infernux_mcp.credentials import publish_credentials, remove_credentials
+from infernux_mcp.transport_security import EditorTransportSecurity
 
 try:
     from mcp.server.fastmcp import FastMCP
@@ -27,25 +29,30 @@ except ImportError:
 class ClientTransportTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.cancelled = threading.Event()
-        mcp = FastMCP("Client Transport Test")
+        cls.finished = threading.Event()
+        cls.slow_calls = 0
+        mcp = FastMCP("Client Transport Test", stateless_http=True, json_response=True)
 
         @mcp.tool()
         def mcp_ping() -> dict[str, object]:
             return {"ok": True, "data": "pong"}
 
         @mcp.tool()
-        async def wait_until_cancelled() -> dict[str, object]:
+        async def slow_query() -> dict[str, object]:
+            cls.slow_calls += 1
             try:
-                await asyncio.sleep(30)
+                await asyncio.sleep(1)
                 return {"ok": True}
             finally:
-                cls.cancelled.set()
+                cls.finished.set()
 
         cls.sock = socket.socket()
         cls.sock.bind(("127.0.0.1", 0))
-        cls.endpoint = f"http://127.0.0.1:{cls.sock.getsockname()[1]}/mcp"
-        cls.server = uvicorn.Server(uvicorn.Config(mcp.streamable_http_app(), log_level="error"))
+        port = cls.sock.getsockname()[1]
+        cls.endpoint = f"http://127.0.0.1:{port}/mcp"
+        _, cls.token = publish_credentials(cls.endpoint)
+        app = EditorTransportSecurity(mcp.streamable_http_app(), port=port, token=cls.token)
+        cls.server = uvicorn.Server(uvicorn.Config(app, log_level="error"))
         cls.thread = threading.Thread(target=cls.server.run, kwargs={"sockets": [cls.sock]}, daemon=True)
         cls.thread.start()
         deadline = time.monotonic() + 5
@@ -61,6 +68,7 @@ class ClientTransportTests(unittest.TestCase):
         cls.sock.close()
         if cls.thread.is_alive():
             raise RuntimeError("Test MCP server did not shut down")
+        remove_credentials(cls.endpoint, cls.token)
 
     def cli(self, *args):
         env = dict(os.environ)
@@ -77,15 +85,18 @@ class ClientTransportTests(unittest.TestCase):
                     self.assertEqual((await connection.call_tool("mcp_ping", {})).data, {"ok": True, "data": "pong"})
         asyncio.run(run())
 
-    def test_request_timeout_does_not_wait_indefinitely_and_server_receives_cancel(self):
-        self.cancelled.clear()
+    def test_request_timeout_keeps_failure_reply_without_replaying(self):
+        self.finished.clear()
         started = time.monotonic()
-        with self.cli("--timeout", "0.2", "call", "wait_until_cancelled") as process:
-            out, _ = process.communicate(timeout=5)
+        with self.cli("--timeout", "0.2", "call", "slow_query") as process:
+            out, err = process.communicate(timeout=5)
             self.assertEqual(process.returncode, 1)
+            self.assertTrue(out.strip(), err)
             self.assertEqual(json.loads(out)["error"]["phase"], "request")
+            self.assertIn("does not replay", json.loads(out)["error"]["hint"])
         self.assertLess(time.monotonic() - started, 5)
-        self.assertTrue(self.cancelled.wait(2), "Server did not receive cancellation")
+        self.assertTrue(self.finished.wait(2), "Test query did not finish")
+        self.assertEqual(self.slow_calls, 1)
 
     @unittest.skipIf(os.name == "nt", "SIGINT subprocess test is POSIX-specific")
     def test_interrupt_while_stdin_idle_exits_without_waiting_for_eof(self):

@@ -101,7 +101,7 @@ def configure(project_path: str, config: dict[str, Any] | None = None) -> McpSes
     build_profile = str(policy.get("build_profile", "debug_feedback") or "debug_feedback")
     if build_profile not in VALID_BUILD_PROFILES:
         build_profile = "debug_feedback"
-    session_id = str(policy.get("session_id", "") or _new_session_id())
+    session_id = checkpoint_store.normalize_checkpoint_id(policy.get("session_id") or _new_session_id())
     roots = _normalized_roots(policy.get("allowed_project_roots"), root)
     if not _is_within_any_root(root, roots):
         roots.insert(0, root)

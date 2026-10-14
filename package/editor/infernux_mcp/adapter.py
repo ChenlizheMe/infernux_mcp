@@ -47,7 +47,6 @@ def register_gateways(
     with _state_lock:
         registration_started = time.perf_counter()
         shutdown_adapter()
-        _command_owner = CommandOwner(OWNER)
         _config = dict(config or {})
         registry = OperationRegistry.instance()
         registry.unregister_owner(OWNER)
@@ -59,6 +58,8 @@ def register_gateways(
             _config = capabilities.configure(project_path, write_default=False)
         else:
             _config = capabilities.apply_config(project_path, dict(config))
+        _command_owner = CommandOwner(OWNER)
+        _command_owner.timeout_ms = _config["limits"]["main_thread_timeout_ms"]
         from infernux_mcp import session
         # Registration defines a new plugin lifetime and policy session.
         session.configure(project_path, dict(_config))
@@ -67,7 +68,8 @@ def register_gateways(
         _operation_ids.clear()
         for operation in build_operations(project_path):
             registry.register(operation)
-            _operation_ids.add(operation.schema.id)
+            if registry.get(operation.schema.id).owner == OWNER:
+                _operation_ids.add(operation.schema.id)
         _registry = registry
         _jobs = OperationJobRegistry(registry)
         _started_at = time.time()
@@ -154,9 +156,13 @@ def _register_gateway_tools(mcp, project_path: str, command_owner: CommandOwner)
         _gateway_names.add(name)
         def decorate(fn):
             @wraps(fn)
-            def invoke(*args, **kwargs):
+            def invoke_sync(*args, **kwargs):
                 with command_owner_scope(command_owner):
                     return fn(*args, **kwargs)
+            @wraps(invoke_sync)
+            async def invoke(*args, **kwargs):
+                import anyio
+                return await anyio.to_thread.run_sync(partial(invoke_sync, *args, **kwargs))
             return mcp.tool(name=name)(invoke)
         return decorate
 
@@ -412,10 +418,10 @@ def _compact_schema(value: Mapping[str, object]) -> dict[str, object]:
 
 
 def _granted_capabilities() -> tuple[str, ...]:
-    configured = _config.get("granted_capabilities", ["*"])
+    configured = _config.get("granted_capabilities", ())
     if not isinstance(configured, (list, tuple)):
-        return ("*",)
-    return tuple(str(item) for item in configured)
+        return ()
+    return tuple(configured)
 
 
 def _execute(
