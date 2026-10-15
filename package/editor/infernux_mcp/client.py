@@ -33,17 +33,29 @@ def create_loopback_client(endpoint: str, *, timeout_seconds: float | None = Non
     import httpx
     from fastmcp import Client
     from fastmcp.client.transports.http import StreamableHttpTransport
+    if __package__:
+        from .credentials import load_token
+    else:
+        from credentials import load_token
+
+    class EditorCredentialAuth(httpx.Auth):
+        async def async_auth_flow(self, request):
+            request.headers["Authorization"] = f"Bearer {load_token(endpoint)}"
+            yield request
 
     def http_client_factory(headers=None, auth=None, follow_redirects=True, timeout=None):
         return httpx.AsyncClient(
             headers=headers,
             auth=auth,
-            follow_redirects=follow_redirects,
+            follow_redirects=False,
             timeout=timeout or httpx.Timeout(30.0, read=300.0),
             trust_env=False,
         )
 
-    transport = StreamableHttpTransport(str(endpoint), httpx_client_factory=http_client_factory)
+    transport = StreamableHttpTransport(
+        str(endpoint), auth=EditorCredentialAuth(),
+        httpx_client_factory=http_client_factory,
+    )
     return Client(transport, timeout=timeout_seconds, init_timeout=timeout_seconds)
 
 
@@ -165,12 +177,18 @@ async def _run_cli(args: argparse.Namespace) -> Any:
                 matches = [tool for tool in tools if tool.name == args.tool]
                 if not matches:
                     raise ValueError(f"MCP tool not found: {args.tool}")
-                return _json_value(matches[0])
-            query = str(args.match or "").casefold()
-            if query:
-                tools = [tool for tool in tools if query in tool.name.casefold()]
-            return _json_value(tools)
-        return await _call(client, args, args.tool, tool_args)
+                value = _json_value(matches[0])
+            else:
+                query = str(args.match or "").casefold()
+                if query:
+                    tools = [tool for tool in tools if query in tool.name.casefold()]
+                value = _json_value(tools)
+        else:
+            value = await _call(client, args, args.tool, tool_args)
+        # Publish the completed response before transport cleanup. A cleanup
+        # error goes to stderr and must not erase the request's stdout result.
+        _write_json(args, value)
+        return value
 
 
 async def _stdin_lines():
@@ -285,7 +303,6 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "session":
             return asyncio.run(_run_session(args))
         value = asyncio.run(_run_cli(args))
-        _write_json(args, value)
         return int(_failed(value, tool=getattr(args, "tool", "")))
     except KeyboardInterrupt:
         return 130

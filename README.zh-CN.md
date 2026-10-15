@@ -17,13 +17,13 @@
 
 | 包标识 | 版本 | 适配引擎 | 默认地址 |
 | --- | --- | --- | --- |
-| `infernux/mcp` | 0.1.2 | Infernux 0.4.x | `http://127.0.0.1:9713/mcp` |
+| `infernux/mcp` | 0.1.19 | Infernux >=0.4.2 | `http://127.0.0.1:9713/mcp` |
 
 ## 安装与连接
 
 Infernux 新项目默认带有这个官方插件。已有项目可以在编辑器的**插件**窗口中安装或更新；不需要 Agent 操作时，也可以在同一位置禁用或卸载。
 
-把支持 MCP 的客户端连接到 `http://127.0.0.1:9713/mcp` 即可。服务只接受本机连接。如需更换端口，请在启动编辑器前设置 `INFERNUX_MCP_PORT`。
+编辑器为 Cursor、Claude Code、VS Code、Trae 和 Gemini 生成标准 stdio 配置。轻量代理把请求转发至 `http://127.0.0.1:9713/mcp`，每次请求读取当前用户的私有凭据，编辑器重启后也会使用新凭据；代理不会初始化引擎。直接连接 HTTP 的客户端必须携带 bearer 凭据，内置 Python 客户端会自动处理。凭据不会写入项目文件、进程参数或环境变量。如需更换端口，请在启动编辑器前设置 `INFERNUX_MCP_PORT`。
 
 Agent 应先调用 `host_session_status`，再读取 `operation_schema_list`。通过 `operation_schema_search` 找到所需能力、读取准确 schema，最后用 `operation_command_execute` 执行。构建等耗时任务使用 `operation_job_submit`，一组顺序明确的操作可以交给 `operation_batch_execute`，减少通信往返。
 
@@ -40,9 +40,9 @@ Python 客户端新增 `session` 模式：每行输入一个 JSON 请求，复�
 
 [客户端工作流与耗时诊断](package/plugin_pages/operations.zh-CN.md#python-客户端)说明了协议、超时边界和只读基准测试。现有 gateway API、能力白名单与确认要求保持不变，不会自动重试命令。源码改进将在后续打标签发布时进入新安装包，当前发布版本号不变。
 
-## Compute 性能诊断（041）
+## Compute 性能诊断
 
-在操作目录中搜索 `runtime.compute`。`statistics` 读取引擎已有的上传/回读字节数、派发与提交次数、CPU 等待时间；`reset_statistics` 开始新的计数区间。需要 GPU 时间戳时显式启用 `profiling`，测量完关闭；切换时可能等待在途任务。GPU 耗时只代表最近完成的一次提交，不是整帧耗时；完整帧的百分位仍通过 `runtime.performance` 获取。这些操作需要配套的 041 引擎宿主。
+在操作目录中搜索 `runtime.compute`。`statistics` 读取引擎已有的上传/回读字节数、派发与提交次数、CPU 等待时间；`reset_statistics` 开始新的计数区间。需要 GPU 时间戳时显式启用 `profiling`，测量完关闭；切换时可能等待在途任务。GPU 耗时只代表最近完成的一次提交，不是整帧耗时；完整帧的百分位仍通过 `runtime.performance` 获取。这些操作需要配套的引擎宿主。
 
 ## 仓库说明
 

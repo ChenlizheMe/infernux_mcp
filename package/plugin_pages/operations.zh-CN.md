@@ -19,6 +19,10 @@
 
 ## Python 客户端
 
+编辑器会把它拥有的 `infernux-editor` 配置重新生成为标准 stdio 代理配置。有效 JSON 中的其他服务器和设置会保留，旧的本插件 HTTP 配置会被替换。JSONC、损坏 JSON 或非对象文档不会被覆盖，Console 会报告问题，其他客户端文件仍会更新；这类文件可按 `connection_info()["clients"]` 中的对应配置手动合入。已使用旧 HTTP 配置的客户端需要重启；现有 stdio 代理每次读取当前凭据，编辑器在同端口重启后仍可继续使用。
+
+服务只监听本机，并要求 bearer 认证。Python 客户端会从当前用户的私有状态目录读取凭据，不需要项目文件保存凭据。不要把凭据放进客户端 JSON、Git、进程参数或环境变量。带浏览器 Origin 的请求会被拒绝；`/health` 只报告就绪状态，不能用于 MCP 调用。
+
 使用编辑器的同一个 Python 环境。在插件源码目录中，把 `package/editor` 加到 `PYTHONPATH`，保留原有条目；Bash 示例：`export PYTHONPATH="$PWD/package/editor${PYTHONPATH:+:$PYTHONPATH}"`。项目中已安装的插件对应路径为 `Packages/infernux/mcp/editor`。
 
 ```bash
@@ -39,6 +43,8 @@ python -m infernux_mcp.client --timeout 30 --timings session
 每次请求完成立即输出一行：`{"id":"status","result":{"ok":true,"data":{...}}}`。只接受 `id`、`tool`、`arguments`；`id` 可省略，也可为字符串、整数或 null。依赖前一步结果的命令应先读取响应，复用返回的物体 ID 与资源 GUID。EOF 关闭连接，空行忽略。无效记录或失败调用会输出错误，后续已提供的记录仍会处理。任一记录失败时最终退出码为 1，全部成功为 0，Ctrl+C 为 130。单次 `call` 遇到操作错误、批次中部分步骤失败，或任务失败/取消时也返回 1，stdout 保留服务端原始 envelope，不把操作结果里的任意字段误判为 gateway 错误。
 
 复用连接仍遵守原有 schema、能力白名单、撤销路径、会话身份和确认要求，不代表获得额外授权。CLI 不会重新发出失败命令，也不会新建客户端来重试它。超时或断连不能证明命令已取消或回滚，重试前先查看项目或任务状态。长任务仍应通过 `operation_job_submit` 提交再查询。`--timeout` 限制 MCP 初始化和每次请求，不限制整个会话或等候下一行输入的空闲时间；传输清理可能增加总耗时。
+
+已完成的请求结果会在断开连接前写入 stdout。断连错误单独写入 stderr，并使退出码为非零；它不会抹掉 stdout 中的请求结果。
 
 ## 耗时诊断
 

@@ -17,13 +17,13 @@ The official Model Context Protocol plugin for [Infernux](https://github.com/Che
 
 | Package | Version | Compatible engine | Endpoint |
 | --- | --- | --- | --- |
-| `infernux/mcp` | 0.1.2 | Infernux 0.4.x | `http://127.0.0.1:9713/mcp` |
+| `infernux/mcp` | 0.1.19 | Infernux >=0.4.2 | `http://127.0.0.1:9713/mcp` |
 
 ## Install and connect
 
 New Infernux projects include this official plugin by default. Existing projects can install or update it from the Editor's **Plugins** window. You can disable or uninstall it there when agent access is not needed.
 
-Point an MCP-compatible client to `http://127.0.0.1:9713/mcp`. The server accepts localhost connections only. Set `INFERNUX_MCP_PORT` before starting the Editor to choose another port.
+The Editor writes standard stdio client configurations for Cursor, Claude Code, VS Code, Trae and Gemini. Their small proxy forwards to `http://127.0.0.1:9713/mcp` and reads the current user's private credential for every request, including after an Editor restart. It does not initialize the engine. Direct HTTP clients must send a bearer credential; the built-in Python client handles this automatically. No credential is stored in project files, process arguments, or environment variables. Set `INFERNUX_MCP_PORT` before starting the Editor to choose another loopback port.
 
 Start a session with `host_session_status`, then read `operation_schema_list`. Search the catalog with `operation_schema_search`, inspect the exact schema you need, and call it through `operation_command_execute`. Long-running builds belong in `operation_job_submit`; known ordered calls can be grouped with `operation_batch_execute`.
 
@@ -49,7 +49,7 @@ changes retain the existing gateway APIs and capability gates; no extra grants
 or automatic retries are introduced. The published package version is unchanged
 until a release is tagged.
 
-## Compute diagnostics (041)
+## Compute diagnostics
 
 Search the operation catalog for `runtime.compute`. Read `statistics` for the
 engine's cumulative upload/readback bytes, dispatches, submissions and CPU waits;
@@ -57,7 +57,7 @@ engine's cumulative upload/readback bytes, dispatches, submissions and CPU waits
 to collect native GPU timestamps, and disable it after measuring. Toggling it may
 wait for in-flight compute. GPU time describes the latest completed submission,
 not an entire frame; use the separate `runtime.performance` window for frame
-percentiles. These operations require the matching 041 engine host.
+percentiles. These operations require the matching engine host.
 
 ## Repository guide
 

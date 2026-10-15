@@ -6,6 +6,9 @@ import json
 import os
 import threading
 import time
+import sys
+import socket
+from contextvars import copy_context
 from dataclasses import dataclass, field
 from typing import Optional
 
@@ -23,6 +26,7 @@ PATH = "/mcp"
 HEALTH_PATH = "/health"
 SERVER_NAME = "Infernux Editor"
 _RUNTIME_SERVICE_NAME = "infernux.editor.mcp.http"
+_TRANSPORT_CONTRACT = 1
 
 
 @dataclass
@@ -33,6 +37,8 @@ class _ServerState:
     mcp: object
     transport: object
     adapter_shutdown: object
+    credential_token: str = field(default="", repr=False)
+    transport_contract: int = _TRANSPORT_CONTRACT
     adapter_begin_shutdown: object = None
     thread: Optional[threading.Thread] = None
     error: BaseException | None = None
@@ -82,8 +88,20 @@ def _active_state() -> _ServerState | None:
 
 def start_server(project_path: str, *, host: str = HOST, port: int = PORT) -> bool:
     """Start the embedded HTTP MCP server if it is not already running."""
+    from infernux_mcp.supervisor_utils import _require_loopback_host, _require_port
+
+    host = _require_loopback_host(host)
+    port = _require_port(port)
     with _lifecycle_lock:
         existing = _active_state()
+        contract = getattr(existing, "transport_contract", 0) if existing is not None else _TRANSPORT_CONTRACT
+        if contract not in {0, _TRANSPORT_CONTRACT}:
+            raise RuntimeError("Infernux MCP transport owner has an unsupported version contract")
+        if existing is not None and contract == 0:
+            # Pre-authentication owners can survive module reload. Retire that
+            # concrete legacy transport before publishing an authenticated one.
+            _stop_state(existing)
+            existing = _active_state()
         if existing is not None:
             if existing.stop_requested.is_set():
                 if not existing.stopped.wait(timeout=10.0):
@@ -110,7 +128,7 @@ def start_server(project_path: str, *, host: str = HOST, port: int = PORT) -> bo
 
         try:
             FastMCP = _import_fastmcp()
-        except Exception as exc:
+        except ImportError as exc:
             Debug.log_warning(
                 "Infernux MCP disabled: install PyPI packages 'mcp' and 'fastmcp' to enable "
                 f"the embedded HTTP server ({exc})."
@@ -141,7 +159,15 @@ def start_server(project_path: str, *, host: str = HOST, port: int = PORT) -> bo
                 )
             except Exception as exc:
                 Debug.log_suppressed("infernux_mcp.start_session_log", exc)
-        mcp = FastMCP(SERVER_NAME)
+        from mcp.server.transport_security import TransportSecuritySettings
+        mcp = FastMCP(
+            SERVER_NAME, stateless_http=True, json_response=True, log_level="WARNING",
+            transport_security=TransportSecuritySettings(
+                enable_dns_rebinding_protection=True,
+                allowed_hosts=[f"127.0.0.1:{port}", f"localhost:{port}"],
+                allowed_origins=[],
+            ),
+        )
 
         # Keep health probing outside the streamable HTTP mount. A bare GET on
         # /mcp is transport negotiation, not a stable readiness endpoint.
@@ -153,13 +179,7 @@ def start_server(project_path: str, *, host: str = HOST, port: int = PORT) -> bo
             return JSONResponse(
                 {
                     "name": SERVER_NAME,
-                    "message": (
-                        "MCP endpoint is alive. Use streamable HTTP at /mcp "
-                        "for tool calls."
-                    ),
-                    "transport": "streamable-http",
-                    "path": HEALTH_PATH,
-                    "url": endpoint_url(host=host, port=int(port)),
+                    "ready": True,
                 }
             )
 
@@ -168,22 +188,23 @@ def start_server(project_path: str, *, host: str = HOST, port: int = PORT) -> bo
 
         import uvicorn
 
-        app = mcp.streamable_http_app()
-        endpoint = next(route.endpoint for route in app.routes if route.path == PATH)
+        from infernux_mcp.credentials import publish_credentials
+        from infernux_mcp.transport_security import EditorTransportSecurity
+        listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        try:
+            listener.setsockopt(socket.SOL_SOCKET,
+                                socket.SO_EXCLUSIVEADDRUSE if os.name == "nt" else socket.SO_REUSEADDR, 1)
+            listener.bind((host, port))
+            listener.listen(2048)
+            listener.setblocking(False)
+            _, credential_token = publish_credentials(endpoint_url(host=host, port=port))
+        except OSError as exc:
+            listener.close()
+            shutdown_adapter()
+            raise RuntimeError("Infernux MCP transport failed before becoming ready") from exc
+        app = EditorTransportSecurity(mcp.streamable_http_app(), port=port, token=credential_token)
 
-        class SessionAwareServer(uvicorn.Server):
-            async def _wait_tasks_to_complete(self) -> None:
-                # Uvicorn has stopped accepting requests at this point, but
-                # an MCP GET stream remains open until its session terminates.
-                # Waiting for it before app lifespan shutdown is circular:
-                # FastMCP normally terminates these sessions in that lifespan.
-                # Use the same SDK transport termination as FastMCP's lifespan,
-                # while the session manager and its task group are still alive.
-                for session in tuple(endpoint.session_manager._server_instances.values()):
-                    await session.terminate()
-                await super()._wait_tasks_to_complete()
-
-        transport = SessionAwareServer(
+        transport = uvicorn.Server(
             uvicorn.Config(
                 app,
                 host=str(host),
@@ -204,21 +225,22 @@ def start_server(project_path: str, *, host: str = HOST, port: int = PORT) -> bo
             transport=transport,
             adapter_shutdown=shutdown_adapter,
             adapter_begin_shutdown=begin_shutdown_adapter,
+            credential_token=credential_token,
         )
 
         def _run() -> None:
             try:
                 # Capture this generation's transport. Reading a module global
                 # here lets hot reload redirect an old thread to a new server.
-                transport.run()
+                transport.run(sockets=[listener])
             except BaseException as exc:
                 state.error = exc
                 if not state.stop_requested.is_set():
                     Debug.log_error(f"Infernux MCP HTTP server stopped: {exc}")
 
+        context = copy_context()
         state.thread = threading.Thread(
-            target=_run, name="InfernuxMCPHTTP", daemon=True
-        )
+            target=lambda: context.run(_run), name="InfernuxMCPHTTP", daemon=True)
         install_runtime_service(_RUNTIME_SERVICE_NAME, state)
         state.thread.start()
         deadline = time.monotonic() + 5.0
@@ -286,6 +308,9 @@ def _reap_state(state: _ServerState) -> None:
     if thread is not None and thread is not threading.current_thread():
         thread.join()
     try:
+        if getattr(state, "transport_contract", 0) == _TRANSPORT_CONTRACT:
+            from infernux_mcp.credentials import remove_credentials
+            remove_credentials(endpoint_url(host=state.host, port=state.port), state.credential_token)
         state.adapter_shutdown()
         if state.project_path:
             _remove_discovery_files(
@@ -335,6 +360,7 @@ def connection_info(*, host: str | None = None, port: int | None = None) -> dict
         (state.port if state is not None else PORT) if port is None else int(port)
     )
     url = endpoint_url(host=resolved_host, port=resolved_port)
+    from infernux_mcp.credentials import credential_path
     return {
         "name": SERVER_NAME,
         "transport": "streamable-http",
@@ -343,86 +369,29 @@ def connection_info(*, host: str | None = None, port: int | None = None) -> dict
         "path": PATH,
         "url": url,
         "health_url": health_url(host=resolved_host, port=resolved_port),
+        "authentication": {"type": "bearer", "token_file": str(credential_path(url))},
         "clients": _client_connection_configs(url),
     }
 
 
 def _client_connection_configs(url: str) -> dict:
-    return {
-        "generic": {
-            "file": "mcp.json",
-            "format": "mcpServers",
-            "config": {
-                "mcpServers": {
-                    "infernux-editor": {
-                        "url": url,
-                        "transport": "streamable-http",
-                    }
-                }
-            },
-        },
-        "cursor": {
-            "file": ".cursor/mcp.json",
-            "format": "mcpServers",
-            "config": {
-                "mcpServers": {
-                    "infernux-editor": {
-                        "url": url,
-                        "transport": "streamable-http",
-                    }
-                }
-            },
-        },
-        "claude_code": {
-            "file": ".mcp.json",
-            "format": "mcpServers",
-            "config": {
-                "mcpServers": {
-                    "infernux-editor": {
-                        "type": "http",
-                        "url": url,
-                    }
-                }
-            },
-        },
-        "vscode_copilot": {
-            "file": ".vscode/mcp.json",
-            "format": "servers",
-            "config": {
-                "servers": {
-                    "infernux-editor": {
-                        "type": "http",
-                        "url": url,
-                    }
-                }
-            },
-        },
-        "trae": {
-            "file": ".trae/mcp.json",
-            "format": "mcpServers",
-            "config": {
-                "mcpServers": {
-                    "infernux-editor": {
-                        "type": "http",
-                        "url": url,
-                    }
-                }
-            },
-        },
-        "gemini": {
-            "file": ".gemini/settings.json",
-            "format": "mcpServers",
-            "config": {
-                "mcpServers": {
-                    "infernux-editor": {
-                        "httpUrl": url,
-                        "timeout": 600000,
-                        "trust": False,
-                    }
-                }
-            },
-        },
-    }
+    bridge = os.path.join(os.path.dirname(__file__), "bridge.py")
+    command = {"command": sys.executable, "args": [bridge, "--endpoint", url]}
+    clients = {}
+    for name, file, root_key, typed in (
+        ("generic", "mcp.json", "mcpServers", False),
+        ("cursor", ".cursor/mcp.json", "mcpServers", False),
+        ("claude_code", ".mcp.json", "mcpServers", True),
+        ("vscode_copilot", ".vscode/mcp.json", "servers", True),
+        ("trae", ".trae/mcp.json", "mcpServers", True),
+        ("gemini", ".gemini/settings.json", "mcpServers", False),
+    ):
+        entry = dict(command)
+        if typed:
+            entry["type"] = "stdio"
+        clients[name] = {"file": file, "format": root_key,
+                         "config": {root_key: {"infernux-editor": entry}}}
+    return clients
 
 
 def _write_discovery_files(project_path: str, *, host: str, port: int) -> None:
@@ -436,16 +405,11 @@ def _write_discovery_files(project_path: str, *, host: str, port: int) -> None:
     if not root:
         return
     info = connection_info(host=host, port=port)
-    try:
-        os.makedirs(root, exist_ok=True)
-        _write_generic_manifest(root, info)
-        for client_name, client in info["clients"].items():
-            if client_name == "generic":
-                continue
+    _update_discovery_file(os.path.join(root, "mcp.json"), _write_generic_manifest_file, info)
+    for client_name, client in info["clients"].items():
+        if client_name != "generic":
             target = os.path.join(root, client["file"])
-            _merge_client_json_config(target, client["config"])
-    except Exception as exc:
-        Debug.log_suppressed("infernux_mcp.write_discovery_files", exc)
+            _update_discovery_file(target, _merge_client_json_config, client["config"])
 
 
 def _remove_discovery_files(
@@ -461,18 +425,20 @@ def _remove_discovery_files(
     root = resolved_path(project_path or "")
     if not root:
         return
-    try:
-        _remove_generic_manifest(os.path.join(root, "mcp.json"))
-        info = connection_info(host=host, port=port)
-        for client_name, client in info["clients"].items():
-            if client_name == "generic":
-                continue
+    _update_discovery_file(os.path.join(root, "mcp.json"), _remove_generic_manifest)
+    info = connection_info(host=host, port=port)
+    for client_name, client in info["clients"].items():
+        if client_name != "generic":
             target = os.path.join(root, client["file"])
-            root_key = next(iter(client["config"]), "")
-            if root_key:
-                _remove_json_server(target, root_key, "infernux-editor")
-    except Exception as exc:
-        Debug.log_suppressed("infernux_mcp.remove_discovery_files", exc)
+            root_key = next(iter(client["config"]))
+            _update_discovery_file(target, _remove_json_server, root_key, "infernux-editor")
+
+
+def _update_discovery_file(path: str, update, *args) -> None:
+    try:
+        update(path, *args)
+    except (OSError, ValueError) as exc:
+        Debug.log_suppressed(f"infernux_mcp.discovery_file: {path}", exc)
 
 
 def _remove_generic_manifest(path: str) -> None:
@@ -520,9 +486,8 @@ def _remove_generated_file(path: str) -> None:
             pass
 
 
-def _write_generic_manifest(root: str, info: dict) -> None:
+def _write_generic_manifest_file(path: str, info: dict) -> None:
     generic = info["clients"]["generic"]["config"]
-    path = os.path.join(root, "mcp.json")
     data = _read_json_object(path)
     data["infernux"] = {
         "name": info["name"],
@@ -531,6 +496,7 @@ def _write_generic_manifest(root: str, info: dict) -> None:
         "port": info["port"],
         "path": info["path"],
         "url": info["url"],
+        "authentication": info["authentication"],
     }
     data["clients"] = {
         name: {"file": client["file"], "format": client["format"]}
@@ -563,14 +529,14 @@ def _merge_client_json_config(path: str, config: dict) -> None:
 
 
 def _read_json_object(path: str) -> dict:
-    if not os.path.isfile(path):
-        return {}
     try:
         with open(path, "r", encoding="utf-8") as f:
             value = json.load(f)
-        return value if isinstance(value, dict) else {}
-    except Exception:
+    except FileNotFoundError:
         return {}
+    if not isinstance(value, dict):
+        raise ValueError(f"MCP client configuration must be a JSON object: {path}")
+    return value
 
 
 def _write_json_if_changed(path: str, value: dict) -> None:
